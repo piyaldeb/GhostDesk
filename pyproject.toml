@@ -46,6 +46,7 @@ dependencies = [
 
     # HTTP
     "requests",
+    "aiohttp",          # WhatsApp incoming webhook server
 
     # Scheduler
     "apscheduler",
@@ -61,6 +62,10 @@ notifications = [
 audio = [
     "pycaw",
     "comtypes",
+]
+autorespond = [
+    "pyrogram",
+    "tgcrypto",         # fast crypto for Pyrogram
 ]
 
 [project.scripts]

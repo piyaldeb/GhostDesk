@@ -209,6 +209,14 @@ async def cmd_schedules(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Pending confirmations: { chat_id: { "action": ..., "plan": ... } }
 _pending_confirmations: dict = {}
 
+# Auto-response approval state (keyed by Telegram message_id of the card)
+from modules.auto_responder import (
+    _pending_approvals,
+    _awaiting_edit,
+    handle_approval_callback,
+    handle_edit_reply_message,
+)
+
 DESTRUCTIVE_KEYWORDS = [
     "delete", "remove", "restart", "reboot", "shutdown", "format",
     "close all", "kill process", "wipe"
@@ -302,15 +310,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+    # Check if owner is in "edit reply" mode first
+    if await handle_edit_reply_message(user_text, chat_id, context):
+        return  # message was consumed as an edited reply
+
     await agent.handle(user_text)
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle inline keyboard button presses (confirmations)."""
+    """Handle inline keyboard button presses (confirmations + auto-reply approvals)."""
     query = update.callback_query
     chat_id = query.message.chat.id
     await query.answer()
 
+    # ── Auto-response approval buttons ──────────────────────────────────────
+    if query.data in ("ar_send", "ar_edit", "ar_skip"):
+        await handle_approval_callback(query, context)
+        return
+
+    # ── Destructive action confirmation ──────────────────────────────────────
     pending = _pending_confirmations.pop(chat_id, None)
 
     if query.data == "confirm_yes" and pending:
@@ -320,7 +338,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async def send(text: str):
             await context.bot.send_message(chat_id=chat_id, text=text)
 
-        # Re-create agent with fresh send fn (query context may differ)
         await agent.handle(pending["user_input"])
 
     elif query.data == "confirm_no":
@@ -411,6 +428,93 @@ def start_whatsapp_bridge():
         logger.warning(f"WhatsApp bridge failed: {e}")
 
 
+# ─── WhatsApp Incoming Webhook (aiohttp on port 3100) ─────────────────────────
+
+async def _start_whatsapp_webhook(bot_app: "Application"):
+    """
+    Tiny aiohttp server on port 3100.
+    The Node.js bridge POSTs here when a WhatsApp message arrives.
+    """
+    try:
+        from aiohttp import web
+        from modules.auto_responder import process_incoming
+
+        async def incoming_whatsapp(request):
+            try:
+                data = await request.json()
+                contact      = data.get("contact", "")
+                contact_name = data.get("contact_name", "")
+                body         = data.get("body", "")
+                if contact and body and config.AUTO_RESPOND_WHATSAPP:
+                    asyncio.create_task(
+                        process_incoming(
+                            contact=contact,
+                            contact_name=contact_name,
+                            incoming_message=body,
+                            source="whatsapp",
+                            bot=bot_app,
+                            chat_id=int(config.TELEGRAM_CHAT_ID),
+                        )
+                    )
+            except Exception as e:
+                logger.error(f"Webhook handler error: {e}")
+            return web.Response(text="ok")
+
+        web_app = web.Application()
+        web_app.router.add_post("/incoming/whatsapp", incoming_whatsapp)
+        runner = web.AppRunner(web_app)
+        await runner.setup()
+        site = web.TCPSite(runner, "localhost", 3100)
+        await site.start()
+        logger.info("WhatsApp webhook listening on localhost:3100")
+    except ImportError:
+        logger.warning("aiohttp not installed — WhatsApp webhook disabled.")
+    except Exception as e:
+        logger.warning(f"WhatsApp webhook failed to start: {e}")
+
+
+# ─── Email Poller ────────────────────────────────────────────────────────────
+
+_email_last_uid: int = 0
+
+
+async def _poll_emails_job(bot_app: "Application"):
+    """APScheduler-compatible coroutine: check for new emails and auto-respond."""
+    global _email_last_uid
+    if not config.AUTO_RESPOND_EMAIL or not config.EMAIL_ADDRESS:
+        return
+    try:
+        from modules.email_handler import poll_new_emails
+        from modules.auto_responder import process_incoming
+
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: poll_new_emails(_email_last_uid)
+        )
+        if not result.get("success"):
+            return
+
+        _email_last_uid = result["new_max_uid"]
+        for em in result.get("emails", []):
+            sender = em["from"]
+            subject = em["subject"]
+            body = em["body"]
+            email_id = em["id"]
+
+            logger.info(f"New email from {sender}: {subject[:40]}")
+            await process_incoming(
+                contact=sender,
+                contact_name=sender.split("<")[0].strip(),
+                incoming_message=f"Subject: {subject}\n\n{body}",
+                source="email",
+                email_id=email_id,
+                email_subject=subject,
+                bot=bot_app,
+                chat_id=int(config.TELEGRAM_CHAT_ID),
+            )
+    except Exception as e:
+        logger.error(f"Email poll error: {e}")
+
+
 # ─── Entry Point ─────────────────────────────────────────────────────────────
 
 def validate_config():
@@ -463,6 +567,45 @@ def main():
     # Start WhatsApp bridge if enabled
     if config.WHATSAPP_ENABLED:
         threading.Thread(target=start_whatsapp_bridge, daemon=True).start()
+
+    # ── Auto-response setup ──────────────────────────────────────────────────
+    if config.AUTO_RESPOND_ENABLED:
+        ar_features = []
+        if config.AUTO_RESPOND_WHATSAPP: ar_features.append("WhatsApp")
+        if config.AUTO_RESPOND_EMAIL:    ar_features.append("Email")
+        if config.AUTO_RESPOND_TELEGRAM: ar_features.append("Telegram DMs")
+        mode_label = "suggest" if config.AUTO_RESPOND_MODE == "suggest" else "AUTO"
+        print(f"   Auto-response: {mode_label} mode — {', '.join(ar_features) or 'none enabled'}")
+
+    async def post_init(application: "Application"):
+        """Runs inside the bot's event loop after startup."""
+        # WhatsApp incoming webhook
+        if config.AUTO_RESPOND_ENABLED and config.AUTO_RESPOND_WHATSAPP:
+            await _start_whatsapp_webhook(application)
+
+        # Email polling via APScheduler
+        if config.AUTO_RESPOND_ENABLED and config.AUTO_RESPOND_EMAIL and config.EMAIL_ADDRESS:
+            try:
+                from apscheduler.schedulers.asyncio import AsyncIOScheduler
+                email_scheduler = AsyncIOScheduler()
+                email_scheduler.add_job(
+                    _poll_emails_job,
+                    "interval",
+                    seconds=config.EMAIL_POLL_INTERVAL,
+                    args=[application],
+                    id="email_poller",
+                )
+                email_scheduler.start()
+                logger.info(f"Email poller started (every {config.EMAIL_POLL_INTERVAL}s)")
+            except Exception as e:
+                logger.warning(f"Email poller failed: {e}")
+
+        # Telegram personal DM client (Pyrogram)
+        if config.AUTO_RESPOND_ENABLED and config.AUTO_RESPOND_TELEGRAM:
+            from modules.telegram_client import start_user_client
+            await start_user_client(application, int(config.TELEGRAM_CHAT_ID))
+
+    app.post_init = post_init
 
     # Run Telegram bot (blocking)
     logger.info("Starting Telegram polling...")

@@ -286,6 +286,24 @@ def log_conversation(source: str, contact: str, message: str, direction: str = "
         )
 
 
+def get_conversation_history(contact: str, source: str, days: int = 2) -> list[dict]:
+    """
+    Fetch the last N days of conversation with a specific contact on a given source.
+    Returns messages ordered oldest → newest for natural reading in AI prompts.
+    """
+    from datetime import timedelta
+    since = (datetime.now() - timedelta(days=days)).isoformat()
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT timestamp, direction, message FROM conversations
+               WHERE contact = ? AND source = ? AND timestamp >= ?
+               ORDER BY timestamp ASC
+               LIMIT 100""",
+            (contact, source, since)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 # ─── Screen Log ──────────────────────────────────────────────────────────────
 
 def log_screenshot(screenshot_path: str, ai_summary: str = ""):

@@ -4,9 +4,11 @@ IMAP (read) + SMTP (send) email integration.
 """
 
 import email
+import email.header
 import imaplib
 import logging
 import smtplib
+from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -104,6 +106,81 @@ def get_unread_count() -> dict:
         return {"success": True, "count": count, "text": f"📧 {count} unread email(s) in INBOX"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ─── Polling for new emails (used by auto-responder) ─────────────────────────
+
+def poll_new_emails(last_uid: int = 0) -> dict:
+    """
+    Fetch emails with UID > last_uid from INBOX.
+    Returns new emails and the new max UID.
+    Used by the APScheduler job for auto-response polling.
+    """
+    try:
+        conn = _imap_connect()
+        conn.select("INBOX")
+
+        # Search by UID range
+        if last_uid > 0:
+            _, data = conn.uid("search", None, f"UID {last_uid + 1}:*")
+        else:
+            # First run: only get emails from last 24h
+            since = (datetime.now() - __import__("datetime").timedelta(days=1)).strftime("%d-%b-%Y")
+            _, data = conn.uid("search", None, f"SINCE {since}")
+
+        uid_list = [u for u in data[0].split() if int(u) > last_uid]
+
+        if not uid_list:
+            conn.logout()
+            return {"success": True, "emails": [], "new_max_uid": last_uid}
+
+        new_max_uid = last_uid
+        emails = []
+
+        for uid in uid_list:
+            try:
+                _, msg_data = conn.uid("fetch", uid, "(RFC822)")
+                raw = msg_data[0][1]
+                msg = email.message_from_bytes(raw)
+
+                subject_raw = email.header.decode_header(msg["Subject"] or "")[0]
+                subject = (
+                    subject_raw[0].decode(subject_raw[1] or "utf-8")
+                    if isinstance(subject_raw[0], bytes)
+                    else subject_raw[0]
+                )
+                sender = msg.get("From", "")
+                date_str = msg.get("Date", "")
+
+                body = ""
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        if part.get_content_type() == "text/plain" and not part.get("Content-Disposition"):
+                            body = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                            break
+                else:
+                    body = msg.get_payload(decode=True).decode("utf-8", errors="replace")
+
+                uid_int = int(uid)
+                if uid_int > new_max_uid:
+                    new_max_uid = uid_int
+
+                emails.append({
+                    "id": uid.decode() if isinstance(uid, bytes) else str(uid),
+                    "subject": subject,
+                    "from": sender,
+                    "date": date_str,
+                    "body": body[:2000],
+                })
+            except Exception as e:
+                logger.warning(f"Failed to parse email UID {uid}: {e}")
+
+        conn.logout()
+        return {"success": True, "emails": emails, "new_max_uid": new_max_uid}
+
+    except Exception as e:
+        logger.error(f"poll_new_emails error: {e}")
+        return {"success": False, "error": str(e), "emails": [], "new_max_uid": last_uid}
 
 
 # ─── Send Email ──────────────────────────────────────────────────────────────

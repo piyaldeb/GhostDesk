@@ -51,6 +51,34 @@ function initClient() {
         clientReady = false;
     });
 
+    // ── Incoming message hook → POST to Python auto-responder ──────────────
+    client.on('message', async (msg) => {
+        if (msg.fromMe) return;  // ignore sent messages
+        if (!clientReady) return;
+
+        try {
+            const notifyName = msg._data?.notifyName || '';
+            const payload = {
+                contact: msg.from,
+                contact_name: notifyName,
+                body: msg.body || '',
+                timestamp: new Date(msg.timestamp * 1000).toISOString(),
+                type: msg.type,
+            };
+
+            // Node 18+ has native fetch; older versions need node-fetch
+            const fetchFn = typeof fetch !== 'undefined' ? fetch : require('node-fetch');
+            await fetchFn('http://localhost:3100/incoming/whatsapp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+        } catch (err) {
+            // Python server may not be listening yet — silently ignore
+            if (process.env.DEBUG) console.error('Webhook post failed:', err.message);
+        }
+    });
+
     client.initialize();
 }
 

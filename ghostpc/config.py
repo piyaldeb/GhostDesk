@@ -56,6 +56,20 @@ MEMORY_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
 
+# ─── Auto-Response ────────────────────────────────────────────────────────────
+AUTO_RESPOND_ENABLED      = os.getenv("AUTO_RESPOND_ENABLED", "false").lower() == "true"
+AUTO_RESPOND_WHATSAPP     = os.getenv("AUTO_RESPOND_WHATSAPP", "false").lower() == "true"
+AUTO_RESPOND_EMAIL        = os.getenv("AUTO_RESPOND_EMAIL",    "false").lower() == "true"
+AUTO_RESPOND_TELEGRAM     = os.getenv("AUTO_RESPOND_TELEGRAM", "false").lower() == "true"
+AUTO_RESPOND_MODE         = os.getenv("AUTO_RESPOND_MODE", "suggest")   # "suggest" | "auto"
+AUTO_RESPOND_CONTEXT_DAYS = int(os.getenv("AUTO_RESPOND_CONTEXT_DAYS", "2"))
+AUTO_RESPOND_WHITELIST    = os.getenv("AUTO_RESPOND_WHITELIST", "")  # comma-sep, empty=all
+EMAIL_POLL_INTERVAL       = int(os.getenv("EMAIL_POLL_INTERVAL", "300"))  # seconds
+
+# ─── Telegram User Client (for personal DM auto-response) ─────────────────────
+TELEGRAM_API_ID   = os.getenv("TELEGRAM_API_ID", "")
+TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "")
+
 # ─── Platform flags ───────────────────────────────────────────────────────────
 IS_WINDOWS = sys.platform == "win32"
 IS_MAC     = sys.platform == "darwin"
