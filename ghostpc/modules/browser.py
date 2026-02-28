@@ -10,15 +10,47 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def _ensure_playwright_browsers():
+    """Auto-install Playwright browsers if they are missing (runs once on first use)."""
+    import subprocess
+    import sys
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode == 0:
+            logger.info("Playwright chromium installed successfully.")
+        else:
+            logger.warning(f"playwright install chromium failed: {result.stderr[:200]}")
+    except Exception as e:
+        logger.warning(f"Could not auto-install Playwright browsers: {e}")
+
+
 async def _get_browser():
-    """Launch a Playwright browser instance."""
+    """Launch a Playwright browser instance, auto-installing if needed."""
+    import asyncio
     try:
         from playwright.async_api import async_playwright
         p = await async_playwright().start()
         browser = await p.chromium.launch(headless=True)
         return p, browser
-    except Exception as e:
-        raise RuntimeError(f"Failed to launch browser: {e}. Run: playwright install chromium")
+    except Exception as first_err:
+        # Browser binary missing — try to install and retry once
+        if "Executable doesn't exist" in str(first_err) or "playwright install" in str(first_err):
+            logger.info("Playwright browser not found — auto-installing chromium...")
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, _ensure_playwright_browsers)
+            try:
+                from playwright.async_api import async_playwright
+                p = await async_playwright().start()
+                browser = await p.chromium.launch(headless=True)
+                return p, browser
+            except Exception as retry_err:
+                raise RuntimeError(
+                    f"Browser still unavailable after install attempt: {retry_err}"
+                )
+        raise RuntimeError(f"Failed to launch browser: {first_err}")
 
 
 async def open_url(url: str, headless: bool = False) -> dict:
@@ -26,7 +58,14 @@ async def open_url(url: str, headless: bool = False) -> dict:
     try:
         from playwright.async_api import async_playwright
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=headless)
+            try:
+                browser = await p.chromium.launch(headless=headless)
+            except Exception as launch_err:
+                if "Executable doesn't exist" in str(launch_err) or "playwright install" in str(launch_err):
+                    await asyncio.get_event_loop().run_in_executor(None, _ensure_playwright_browsers)
+                    browser = await p.chromium.launch(headless=headless)
+                else:
+                    raise
             page = await browser.new_page()
             await page.goto(url, timeout=30000)
             title = await page.title()

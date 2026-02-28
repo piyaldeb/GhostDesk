@@ -32,6 +32,8 @@ Available modules:
 - screen_watcher: query_screen_history(time_query), start_screen_watcher(), stop_screen_watcher()
 - personality: build_contact_profile(contact_name, source), generate_reply_as_user(incoming_message, contact, source), enable_ghost_mode(contact, duration_minutes, source, notify), disable_ghost_mode(contact), get_ghost_sessions(), draft_reply(incoming_message, contact, source), refine_reply(instruction), get_ghost_replies(days)
 - telegram: send_message(text), send_file(file_path, caption)
+- workflow: create_workflow_from_description(description), list_workflows_text(), delete_workflow_by_id(id), run_workflow_now(id)
+- pc_control: [existing] + update_ghostdesk(restart=True), check_for_updates()
 
 Rules:
 1. Always return ONLY valid JSON with "thought" and "actions" array — no markdown, no explanation outside JSON.
@@ -47,6 +49,12 @@ Rules:
 11. "auto-reply to X for N hours/minutes" → enable_ghost_mode with notify=true. "ghost mode fully silent for X" → enable_ghost_mode with notify=false.
 12. "how would I reply to this?" + pasted message → personality.draft_reply. "refine that reply" → personality.refine_reply(instruction).
 13. "show ghost replies today" / "what did I auto-reply" → personality.get_ghost_replies(days=1).
+14. "create workflow: ..." / "add workflow: ..." → workflow.create_workflow_from_description(description=full user text).
+15. "list workflows" / "show my workflows" → workflow.list_workflows_text().
+16. "run workflow N" / "trigger workflow N" → workflow.run_workflow_now(id=N).
+17. "delete workflow N" / "remove workflow N" → workflow.delete_workflow_by_id(id=N).
+18. "update ghostdesk" / "reinstall ghostdesk" → pc_control.update_ghostdesk(restart=True).
+19. "check for updates" / "any ghostdesk update?" → pc_control.check_for_updates().
 
 Response format (STRICT — no other text):
 {

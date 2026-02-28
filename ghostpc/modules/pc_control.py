@@ -516,6 +516,107 @@ def disable_remote_desktop() -> dict:
         return {"success": False, "error": str(e)}
 
 
+def check_for_updates() -> dict:
+    """Check if a newer version of GhostDesk is available (git-based)."""
+    pkg_dir = Path(__file__).parent.parent.parent  # GhostDesk root
+    git_dir = pkg_dir / ".git"
+
+    if not git_dir.exists():
+        return {
+            "success": False,
+            "text": "❌ Not a git repo — cannot check for updates automatically.",
+        }
+    try:
+        subprocess.run(
+            ["git", "fetch"], cwd=str(pkg_dir),
+            capture_output=True, timeout=15,
+        )
+        status = subprocess.run(
+            ["git", "status", "-uno"], cwd=str(pkg_dir),
+            capture_output=True, text=True, timeout=10,
+        )
+        if "Your branch is behind" in status.stdout:
+            behind = subprocess.run(
+                ["git", "rev-list", "HEAD..@{u}", "--count"],
+                cwd=str(pkg_dir), capture_output=True, text=True,
+            )
+            count = behind.stdout.strip()
+            return {
+                "success": True, "update_available": True,
+                "text": (
+                    f"🔄 Update available: *{count}* new commit(s).\n"
+                    "Say `update ghostdesk` or run `/update` to install."
+                ),
+            }
+        return {
+            "success": True, "update_available": False,
+            "text": "✅ GhostDesk is up to date.",
+        }
+    except Exception as e:
+        return {"success": False, "text": f"❌ Update check failed: {e}"}
+
+
+def update_ghostdesk(restart: bool = True) -> dict:
+    """
+    Pull latest code and reinstall GhostDesk.
+    If restart=True, the process restarts automatically after 2 seconds.
+    """
+    import threading
+
+    pkg_dir = Path(__file__).parent.parent.parent
+    git_dir = pkg_dir / ".git"
+    lines   = []
+
+    if git_dir.exists():
+        # git pull
+        pull = subprocess.run(
+            ["git", "pull"], cwd=str(pkg_dir),
+            capture_output=True, text=True, timeout=60,
+        )
+        if pull.returncode != 0:
+            return {
+                "success": False,
+                "text": f"❌ git pull failed:\n```{pull.stderr[:300]}```",
+            }
+        lines.append(f"✅ git pull: {pull.stdout.strip() or 'Already up to date.'}")
+
+        # pip install -e .
+        pip = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-e", ".", "-q"],
+            cwd=str(pkg_dir), capture_output=True, text=True, timeout=120,
+        )
+        if pip.returncode != 0:
+            return {
+                "success": False,
+                "text": f"❌ pip install failed:\n```{pip.stderr[:300]}```",
+            }
+        lines.append("✅ pip install -e . complete.")
+    else:
+        # PyPI upgrade
+        pip = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "ghostdesk"],
+            capture_output=True, text=True, timeout=120,
+        )
+        if pip.returncode != 0:
+            return {
+                "success": False,
+                "text": f"❌ pip upgrade failed:\n```{pip.stderr[:300]}```",
+            }
+        lines.append("✅ pip upgrade complete.")
+
+    if restart:
+        lines.append("🔄 Restarting GhostDesk in 2 seconds...")
+
+        def _do_restart():
+            import time
+            time.sleep(2)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+        threading.Thread(target=_do_restart, daemon=False).start()
+
+    return {"success": True, "text": "\n".join(lines), "restarting": restart}
+
+
 def get_remote_access_guide() -> dict:
     """Return a guide on how to remotely wake and access this PC."""
     import socket

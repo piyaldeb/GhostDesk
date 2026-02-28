@@ -92,6 +92,8 @@ def _get_module_function(module: str, function: str) -> Optional[Callable]:
             from modules import screen_watcher as mod
         elif module == "personality":
             from modules import personality as mod
+        elif module == "workflow":
+            from modules import workflow_engine as mod
         elif module == "telegram":
             # telegram functions are handled specially by the caller
             return None

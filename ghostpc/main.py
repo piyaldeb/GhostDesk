@@ -347,6 +347,27 @@ async def cmd_schedules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
+async def cmd_workflows(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all saved workflows with Run / Disable / Delete buttons."""
+    if not _is_authorized(update):
+        return
+    from modules.workflow_engine import format_workflow_list
+    text, keyboard = format_workflow_list()
+    await update.message.reply_text(
+        text, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard
+    )
+
+
+async def cmd_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Pull latest code and reinstall GhostDesk, then restart."""
+    if not _is_authorized(update):
+        return
+    await update.message.reply_text("⏳ Pulling latest update, please wait...")
+    from modules.pc_control import update_ghostdesk
+    result = update_ghostdesk(restart=True)
+    await update.message.reply_text(result["text"], parse_mode=ParseMode.MARKDOWN)
+
+
 # ─── Message Handler ─────────────────────────────────────────────────────────
 
 # Pending confirmations: { chat_id: { "action": ..., "plan": ... } }
@@ -504,6 +525,39 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         agent = GhostAgent(_sw_send, None)
         asyncio.create_task(agent.handle(f"search the web for a fix for this error: {err}"))
+        return
+
+    # ── Workflow action buttons ───────────────────────────────────────────────
+    if query.data.startswith("wf_run:"):
+        wf_id = int(query.data.split(":")[1])
+        from modules.workflow_engine import get_workflow, execute_workflow
+        wf = get_workflow(wf_id)
+        if wf:
+            await query.answer(f"Running workflow #{wf_id}...")
+            asyncio.create_task(
+                execute_workflow(wf, {}, bot_app=context.application, chat_id=chat_id)
+            )
+        else:
+            await query.answer("Workflow not found.")
+        return
+
+    if query.data.startswith("wf_toggle:"):
+        parts = query.data.split(":")
+        wf_id, cur_enabled = int(parts[1]), int(parts[2])
+        from modules.workflow_engine import toggle_workflow, format_workflow_list
+        toggle_workflow(wf_id, not bool(cur_enabled))
+        await query.answer("Toggled.")
+        text, kb = format_workflow_list()
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+        return
+
+    if query.data.startswith("wf_delete:"):
+        wf_id = int(query.data.split(":")[1])
+        from modules.workflow_engine import delete_workflow, format_workflow_list
+        delete_workflow(wf_id)
+        await query.answer("Deleted.")
+        text, kb = format_workflow_list()
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
         return
 
     if query.data.startswith("sw_move_download:"):
@@ -730,6 +784,25 @@ async def _start_whatsapp_incoming_listener(bot_app: "Application"):
                             chat_id=int(config.TELEGRAM_CHAT_ID),
                         )
                     )
+                # Trigger any matching whatsapp_received workflows
+                if contact and body:
+                    try:
+                        from modules.workflow_engine import trigger_workflows
+                        asyncio.create_task(
+                            trigger_workflows(
+                                "whatsapp_received",
+                                {
+                                    "sender": contact,
+                                    "contact_name": contact_name,
+                                    "content": body,
+                                    "timestamp": data.get("timestamp", ""),
+                                },
+                                bot_app=bot_app,
+                                chat_id=int(config.TELEGRAM_CHAT_ID),
+                            )
+                        )
+                    except Exception as _wf_err:
+                        logger.warning(f"WhatsApp workflow trigger error: {_wf_err}")
             except Exception as e:
                 logger.error(f"WhatsApp incoming handler error: {e}")
             return web.Response(text="ok")
@@ -785,6 +858,22 @@ async def _poll_emails_job(bot_app: "Application"):
                 bot=bot_app,
                 chat_id=int(config.TELEGRAM_CHAT_ID),
             )
+            # Trigger any matching email_received workflows
+            try:
+                from modules.workflow_engine import trigger_workflows
+                await trigger_workflows(
+                    "email_received",
+                    {
+                        "sender": sender,
+                        "subject": subject,
+                        "content": body[:2000],
+                        "timestamp": em.get("date", ""),
+                    },
+                    bot_app=bot_app,
+                    chat_id=int(config.TELEGRAM_CHAT_ID),
+                )
+            except Exception as _wf_err:
+                logger.warning(f"Email workflow trigger error: {_wf_err}")
     except Exception as e:
         logger.error(f"Email poll error: {e}")
 
@@ -859,6 +948,8 @@ def main():
     app.add_handler(CommandHandler("memory", cmd_memory))
     app.add_handler(CommandHandler("notes", cmd_notes))
     app.add_handler(CommandHandler("schedules", cmd_schedules))
+    app.add_handler(CommandHandler("workflows", cmd_workflows))
+    app.add_handler(CommandHandler("update", cmd_update))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
@@ -917,6 +1008,16 @@ def main():
                 config.SCREEN_WATCHER_INTERVAL,
             )
             logger.info(f"Screen watcher started (every {config.SCREEN_WATCHER_INTERVAL}s)")
+
+        # Workflow schedule registration
+        try:
+            from modules.workflow_engine import register_scheduled_workflows
+            register_scheduled_workflows(
+                application, int(config.TELEGRAM_CHAT_ID)
+            )
+            logger.info("Workflow schedules registered.")
+        except Exception as e:
+            logger.warning(f"Workflow scheduler init failed: {e}")
 
     app.post_init = post_init
 
