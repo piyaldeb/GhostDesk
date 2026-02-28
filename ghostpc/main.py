@@ -383,7 +383,7 @@ async def cmd_reinstall(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     def _do_reinstall():
-        import subprocess, sys, threading, time, os
+        import subprocess, sys
         from pathlib import Path
         pkg_dir = Path(__file__).parent.parent
 
@@ -393,17 +393,18 @@ async def cmd_reinstall(update: Update, context: ContextTypes.DEFAULT_TYPE):
                               capture_output=True, text=True, timeout=60)
         lines.append(f"📥 git pull: {pull.stdout.strip() or pull.stderr.strip()[:100]}")
 
-        # pip install -e . --force-reinstall
+        # pip install -e . (no --force-reinstall — avoids OSError on locked files
+        # while the process is running; new deps still get installed)
         pip = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-e", ".", "--force-reinstall", "-q"],
+            [sys.executable, "-m", "pip", "install", "-e", ".", "-q"],
             cwd=str(pkg_dir), capture_output=True, text=True, timeout=300,
         )
         if pip.returncode == 0:
-            lines.append("✅ pip install --force-reinstall complete.")
+            lines.append("✅ Dependencies installed.")
         else:
-            lines.append(f"⚠️ pip: {pip.stderr.strip()[:200]}")
+            lines.append(f"⚠️ pip: {pip.stderr.strip()[:300]}")
 
-        # playwright install chromium
+        # playwright install chromium (fast no-op if already present)
         pw = subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"],
             capture_output=True, text=True, timeout=300,
