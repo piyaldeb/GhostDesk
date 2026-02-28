@@ -137,12 +137,14 @@ def get_recent_commands(n: int = 10) -> list[dict]:
 
 # ─── Notes ───────────────────────────────────────────────────────────────────
 
-def save_note(title: str, content: str, tags: str = "") -> int:
-    """Save a note to memory."""
+def save_note(title: str, content: str, tags=()) -> int:
+    """Save a note to memory. tags can be a string or list."""
+    if isinstance(tags, (list, tuple)):
+        tags = ",".join(str(t) for t in tags)
     with get_connection() as conn:
         cur = conn.execute(
             "INSERT INTO notes (timestamp, title, content, tags) VALUES (?, ?, ?, ?)",
-            (datetime.now().isoformat(), title, content, tags)
+            (datetime.now().isoformat(), title, content, str(tags))
         )
         return cur.lastrowid
 
@@ -243,6 +245,10 @@ def update_schedule_last_run(schedule_id: int):
 
 def save_api_credential(service_name: str, credential_type: str, credential_value: str) -> int:
     """Store an API credential. Overwrites if service already exists."""
+    # Coerce to strings in case the AI passes non-string values
+    service_name     = str(service_name).lower()
+    credential_type  = str(credential_type)
+    credential_value = str(credential_value)
     with get_connection() as conn:
         cur = conn.execute(
             """INSERT INTO api_credentials (service_name, credential_type, credential_value, added_at)
@@ -251,7 +257,7 @@ def save_api_credential(service_name: str, credential_type: str, credential_valu
                  credential_type = excluded.credential_type,
                  credential_value = excluded.credential_value,
                  added_at = excluded.added_at""",
-            (service_name.lower(), credential_type, credential_value, datetime.now().isoformat())
+            (service_name, credential_type, credential_value, datetime.now().isoformat())
         )
         return cur.lastrowid
 
