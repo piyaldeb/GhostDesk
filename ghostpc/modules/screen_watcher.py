@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 _watcher_thread: Optional[threading.Thread] = None
 _watcher_running = False
 _event_loop: Optional[asyncio.AbstractEventLoop] = None
+_bot_app = None          # stored on first start_screen_watcher call
+_owner_chat_id: int = 0  # stored on first start_screen_watcher call
 
 # ─── Duration Thresholds ──────────────────────────────────────────────────────
 
@@ -534,9 +536,13 @@ def _watcher_loop(bot_app, owner_chat_id: int, interval: int):
 
 def start_screen_watcher(bot_app, owner_chat_id: int, interval: int = 30):
     """Launch the background screen watcher thread."""
-    global _watcher_thread, _watcher_running
+    global _watcher_thread, _watcher_running, _bot_app, _owner_chat_id
     if _watcher_running:
         return {"success": False, "text": "Screen watcher is already running."}
+
+    # Persist for agent-callable wrappers
+    _bot_app = bot_app
+    _owner_chat_id = owner_chat_id
 
     _watcher_running = True
     _watcher_thread = threading.Thread(
@@ -547,6 +553,26 @@ def start_screen_watcher(bot_app, owner_chat_id: int, interval: int = 30):
     _watcher_thread.start()
     logger.info("Screen watcher thread launched.")
     return {"success": True, "text": f"Screen watcher started (checking every {interval}s)."}
+
+
+# ─── Agent-callable wrappers (no bot_app/chat_id needed) ─────────────────────
+
+def start_watcher(interval: int = 30) -> dict:
+    """Agent-callable: start the screen watcher using the already-configured bot."""
+    if _bot_app is None:
+        return {"success": False, "error": "Bot not initialised yet — GhostDesk must be running first."}
+    return start_screen_watcher(_bot_app, _owner_chat_id, interval)
+
+
+def stop_watcher() -> dict:
+    """Agent-callable: stop the screen watcher."""
+    return stop_screen_watcher()
+
+
+def watcher_status() -> dict:
+    """Agent-callable: check whether the screen watcher is currently running."""
+    return {"success": True, "running": _watcher_running,
+            "text": f"Screen watcher is {'running' if _watcher_running else 'stopped'}."}
 
 
 def stop_screen_watcher() -> dict:

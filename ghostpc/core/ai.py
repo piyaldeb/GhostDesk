@@ -29,7 +29,7 @@ Available modules:
 - scheduler: create_schedule(cron_expression, command_text), list_schedules(), delete_schedule(id)
 - memory: save_note(title, content, tags), get_notes(), search_memory(query), save_api_credential(service_name, credential_type, credential_value)
 - voice: transcribe_voice(audio_path), text_to_speech(text, output_path, voice)
-- screen_watcher: query_screen_history(time_query), start_screen_watcher(), stop_screen_watcher()
+- screen_watcher: query_screen_history(time_query), start_watcher(interval=30), stop_watcher(), watcher_status()
 - personality: build_contact_profile(contact_name, source), generate_reply_as_user(incoming_message, contact, source), enable_ghost_mode(contact, duration_minutes, source, notify), disable_ghost_mode(contact), get_ghost_sessions(), draft_reply(incoming_message, contact, source), refine_reply(instruction), get_ghost_replies(days)
 - telegram: send_message(text), send_file(file_path, caption)
 - workflow: create_workflow_from_description(description), list_workflows_text(), delete_workflow_by_id(id), run_workflow_now(id)
