@@ -53,8 +53,8 @@ Rules:
 15. "list workflows" / "show my workflows" → workflow.list_workflows_text().
 16. "run workflow N" / "trigger workflow N" → workflow.run_workflow_now(id=N).
 17. "delete workflow N" / "remove workflow N" → workflow.delete_workflow_by_id(id=N).
-18. "update ghostdesk" / "reinstall ghostdesk" → pc_control.update_ghostdesk(restart=True).
-19. "check for updates" / "any ghostdesk update?" → pc_control.check_for_updates().
+18. "update" / "update ghostdesk" / "reinstall" / "reinstall ghostdesk" / "force update" / "/update" → ALWAYS use pc_control.update_ghostdesk(restart=True). Never treat "update" as ambiguous — it always means update GhostDesk itself.
+19. "check for updates" / "any update?" / "any ghostdesk update?" / "new version?" → pc_control.check_for_updates().
 
 Response format (STRICT — no other text):
 {
