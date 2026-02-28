@@ -592,17 +592,21 @@ def update_ghostdesk(restart: bool = True) -> dict:
             }
         lines.append(f"✅ git pull: {pull.stdout.strip() or 'Already up to date.'}")
 
-        # pip install -e .
-        pip = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-e", ".", "-q"],
-            cwd=str(pkg_dir), capture_output=True, text=True, timeout=120,
+        # Install/update dependencies only — avoids touching ghostdesk.exe
+        # (which is locked while the process is running on Windows)
+        req_file = pkg_dir / "ghostpc" / "requirements.txt"
+        pip_cmd = (
+            [sys.executable, "-m", "pip", "install", "-r", str(req_file), "-q"]
+            if req_file.exists()
+            else [sys.executable, "-m", "pip", "install", "-e", ".", "--no-deps", "-q"]
         )
+        pip = subprocess.run(pip_cmd, cwd=str(pkg_dir), capture_output=True, text=True, timeout=180)
         if pip.returncode != 0:
             return {
                 "success": False,
                 "text": f"❌ pip install failed:\n```{pip.stderr[:300]}```",
             }
-        lines.append("✅ pip install -e . complete.")
+        lines.append("✅ Dependencies updated.")
     else:
         # PyPI upgrade
         pip = subprocess.run(

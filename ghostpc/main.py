@@ -404,12 +404,15 @@ async def cmd_reinstall(update: Update, context: ContextTypes.DEFAULT_TYPE):
                               capture_output=True, text=True, timeout=60)
         lines.append(f"📥 git pull: {pull.stdout.strip() or pull.stderr.strip()[:100]}")
 
-        # pip install -e . (no --force-reinstall — avoids OSError on locked files
-        # while the process is running; new deps still get installed)
-        pip = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-e", ".", "-q"],
-            cwd=str(pkg_dir), capture_output=True, text=True, timeout=300,
+        # Install deps via requirements.txt — avoids touching ghostdesk.exe
+        # which is locked on Windows while the process is running
+        req_file = pkg_dir / "ghostpc" / "requirements.txt"
+        pip_cmd = (
+            [sys.executable, "-m", "pip", "install", "-r", str(req_file), "-q"]
+            if req_file.exists()
+            else [sys.executable, "-m", "pip", "install", "-e", ".", "--no-deps", "-q"]
         )
+        pip = subprocess.run(pip_cmd, cwd=str(pkg_dir), capture_output=True, text=True, timeout=300)
         if pip.returncode == 0:
             lines.append("✅ Dependencies installed.")
         else:
