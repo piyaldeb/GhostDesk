@@ -75,7 +75,7 @@ def _get_module_function(module: str, function: str) -> Optional[Callable]:
         elif module == "browser":
             from modules import browser as mod
         elif module == "whatsapp":
-            from modules import whatsapp as mod
+            from modules import whatsapp_cloud as mod
         elif module == "email":
             from modules import email_handler as mod
         elif module == "media":
@@ -86,6 +86,12 @@ def _get_module_function(module: str, function: str) -> Optional[Callable]:
             from core import scheduler as mod
         elif module == "memory":
             from core import memory as mod
+        elif module == "voice":
+            from modules import voice as mod
+        elif module == "screen_watcher":
+            from modules import screen_watcher as mod
+        elif module == "personality":
+            from modules import personality as mod
         elif module == "telegram":
             # telegram functions are handled specially by the caller
             return None

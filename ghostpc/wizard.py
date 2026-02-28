@@ -217,10 +217,23 @@ def setup_ai(config: dict) -> dict:
 
 
 def setup_whatsapp(config: dict) -> dict:
-    print("\n─── Step 3: WhatsApp Mirroring (Optional) ──────────────")
-    print("  Requires Node.js and whatsapp-web.js")
-    enable = ask("  Enable WhatsApp mirroring? (y/n)", default="n")
-    config["WHATSAPP_ENABLED"] = enable.lower() == "y"
+    print("\n─── Step 3: WhatsApp Cloud API (Optional) ──────────────")
+    print("  Uses Meta's official WhatsApp Business Cloud API.")
+    print("  No Node.js, no QR code — just an API key from Meta.\n")
+    print("  How to get credentials (free):")
+    print("  1. Go to developers.facebook.com → Create App → Business")
+    print("  2. Add WhatsApp product → API Setup")
+    print("  3. Copy Access Token and Phone Number ID below.")
+    enable = ask("  Enable WhatsApp Cloud API? (y/n)", default="n")
+
+    if enable.lower() != "y":
+        config["WHATSAPP_ENABLED"] = False
+        return config
+
+    config["WHATSAPP_ENABLED"] = True
+    config["WHATSAPP_ACCESS_TOKEN"] = ask("  Access Token (from Meta App Dashboard)", secret=True)
+    config["WHATSAPP_PHONE_ID"]     = ask("  Phone Number ID")
+    config["WHATSAPP_VERIFY_TOKEN"] = ask("  Webhook Verify Token (any string you choose)", default="ghostdesk")
     return config
 
 
@@ -351,6 +364,9 @@ def write_env_file(config: dict):
         "OPENAI_API_KEY":           config.get("OPENAI_API_KEY", ""),
         "AI_MODEL":                 config.get("AI_MODEL", "claude-opus-4-5"),
         "WHATSAPP_ENABLED":         b(config.get("WHATSAPP_ENABLED")),
+        "WHATSAPP_ACCESS_TOKEN":    config.get("WHATSAPP_ACCESS_TOKEN", ""),
+        "WHATSAPP_PHONE_ID":        config.get("WHATSAPP_PHONE_ID", ""),
+        "WHATSAPP_VERIFY_TOKEN":    config.get("WHATSAPP_VERIFY_TOKEN", "ghostdesk"),
         "EMAIL_IMAP":               config.get("EMAIL_IMAP", ""),
         "EMAIL_SMTP":               config.get("EMAIL_SMTP", ""),
         "EMAIL_ADDRESS":            config.get("EMAIL_ADDRESS", ""),

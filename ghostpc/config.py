@@ -34,8 +34,12 @@ CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 AI_MODEL       = os.getenv("AI_MODEL", "claude-opus-4-5")
 
-# ─── WhatsApp (optional) ──────────────────────────────────────────────────────
-WHATSAPP_ENABLED = os.getenv("WHATSAPP_ENABLED", "false").lower() == "true"
+# ─── WhatsApp Cloud API (optional) ───────────────────────────────────────────
+# Get credentials from: developers.facebook.com → Your App → WhatsApp → API Setup
+WHATSAPP_ENABLED      = os.getenv("WHATSAPP_ENABLED", "false").lower() == "true"
+WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")   # Meta permanent access token
+WHATSAPP_PHONE_ID     = os.getenv("WHATSAPP_PHONE_ID", "")       # Phone Number ID
+WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "ghostdesk")  # webhook verify token
 
 # ─── Email (optional) ─────────────────────────────────────────────────────────
 EMAIL_IMAP     = os.getenv("EMAIL_IMAP", "")

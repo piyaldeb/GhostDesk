@@ -526,63 +526,64 @@ def start_scheduler(bot_app: Application):
 
 # ─── WhatsApp Bridge ─────────────────────────────────────────────────────────
 
-def start_whatsapp_bridge():
-    """Start the WhatsApp bridge subprocess (Node.js)."""
-    try:
-        import subprocess
-        bridge_path = Path(__file__).parent / "modules" / "whatsapp_bridge.js"
-        if bridge_path.exists():
-            subprocess.Popen(
-                ["node", str(bridge_path)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            logger.info("WhatsApp bridge started.")
-        else:
-            logger.warning("WhatsApp bridge script not found.")
-    except Exception as e:
-        logger.warning(f"WhatsApp bridge failed: {e}")
-
-
-# ─── WhatsApp Incoming Webhook (aiohttp on port 3100) ─────────────────────────
+# ─── WhatsApp Cloud API Webhook (aiohttp on port 3100) ────────────────────────
 
 async def _start_whatsapp_webhook(bot_app: "Application"):
     """
-    Tiny aiohttp server on port 3100.
-    The Node.js bridge POSTs here when a WhatsApp message arrives.
+    Tiny aiohttp server on port 3100 for the WhatsApp Cloud API webhook.
+    Meta POSTs incoming messages here.
+
+    For Meta to reach this server you need a public URL (ngrok, Cloudflare Tunnel,
+    or cloud deployment). Set it in Meta App → WhatsApp → Configuration → Webhook URL:
+      https://your-public-url/webhook/whatsapp
+    Verify token must match WHATSAPP_VERIFY_TOKEN in your .env.
     """
     try:
         from aiohttp import web
         from modules.auto_responder import process_incoming
+        from modules.whatsapp_cloud import parse_incoming_webhook
 
-        async def incoming_whatsapp(request):
+        async def whatsapp_verify(request):
+            """Meta webhook verification (GET)."""
+            mode      = request.rel_url.query.get("hub.mode", "")
+            token     = request.rel_url.query.get("hub.verify_token", "")
+            challenge = request.rel_url.query.get("hub.challenge", "")
+            if mode == "subscribe" and token == config.WHATSAPP_VERIFY_TOKEN:
+                logger.info("WhatsApp webhook verified by Meta.")
+                return web.Response(text=challenge)
+            return web.Response(status=403, text="Forbidden")
+
+        async def whatsapp_incoming(request):
+            """Meta webhook incoming messages (POST)."""
             try:
-                data = await request.json()
-                contact      = data.get("contact", "")
-                contact_name = data.get("contact_name", "")
-                body         = data.get("body", "")
-                if contact and body and config.AUTO_RESPOND_WHATSAPP:
-                    asyncio.create_task(
-                        process_incoming(
-                            contact=contact,
-                            contact_name=contact_name,
-                            incoming_message=body,
-                            source="whatsapp",
-                            bot=bot_app,
-                            chat_id=int(config.TELEGRAM_CHAT_ID),
+                payload = await request.json()
+                messages = parse_incoming_webhook(payload)
+                for msg in messages:
+                    contact = msg["contact"]
+                    body    = msg["message"]
+                    if contact and body and config.AUTO_RESPOND_WHATSAPP:
+                        asyncio.create_task(
+                            process_incoming(
+                                contact=contact,
+                                contact_name=contact,
+                                incoming_message=body,
+                                source="whatsapp",
+                                bot=bot_app,
+                                chat_id=int(config.TELEGRAM_CHAT_ID),
+                            )
                         )
-                    )
             except Exception as e:
-                logger.error(f"Webhook handler error: {e}")
+                logger.error(f"WhatsApp webhook handler error: {e}")
             return web.Response(text="ok")
 
         web_app = web.Application()
-        web_app.router.add_post("/incoming/whatsapp", incoming_whatsapp)
+        web_app.router.add_get("/webhook/whatsapp",  whatsapp_verify)
+        web_app.router.add_post("/webhook/whatsapp", whatsapp_incoming)
         runner = web.AppRunner(web_app)
         await runner.setup()
-        site = web.TCPSite(runner, "localhost", 3100)
+        site = web.TCPSite(runner, "0.0.0.0", 3100)
         await site.start()
-        logger.info("WhatsApp webhook listening on localhost:3100")
+        logger.info("WhatsApp Cloud API webhook listening on port 3100")
     except ImportError:
         logger.warning("aiohttp not installed — WhatsApp webhook disabled.")
     except Exception as e:
@@ -710,9 +711,7 @@ def main():
     # Start scheduler in background thread
     threading.Thread(target=start_scheduler, args=(app,), daemon=True).start()
 
-    # Start WhatsApp bridge if enabled
-    if config.WHATSAPP_ENABLED:
-        threading.Thread(target=start_whatsapp_bridge, daemon=True).start()
+    # WhatsApp Cloud API webhook starts inside the async event loop (post_init)
 
     # ── Auto-response setup ──────────────────────────────────────────────────
     if config.AUTO_RESPOND_ENABLED:
@@ -725,8 +724,8 @@ def main():
 
     async def post_init(application: "Application"):
         """Runs inside the bot's event loop after startup."""
-        # WhatsApp incoming webhook
-        if config.AUTO_RESPOND_ENABLED and config.AUTO_RESPOND_WHATSAPP:
+        # WhatsApp Cloud API webhook (starts whenever WhatsApp is enabled)
+        if config.WHATSAPP_ENABLED and config.WHATSAPP_ACCESS_TOKEN:
             await _start_whatsapp_webhook(application)
 
         # Email polling via APScheduler
