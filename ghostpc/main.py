@@ -181,6 +181,17 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `merge all PDFs in my Desktop`\n\n"
 
         "─────────────────────────\n"
+        "*🔌 App Integrations*\n"
+        "Connect any app's API once — control it by chat:\n"
+        "• `show my integrations` — see all supported services\n"
+        "• `connect Spotify` / `connect GitHub` / `connect Notion`\n"
+        "• `what's playing on Spotify`\n"
+        "• `show my GitHub repos`\n"
+        "• `send Slack message to #general: deploy done`\n"
+        "• `send Discord message: server alert`\n"
+        "Supports: Spotify, GitHub, Notion, Slack, Discord, Trello, YouTube, OpenWeatherMap\n\n"
+
+        "─────────────────────────\n"
         "*🌐 Browser & Web*\n"
         "• `open youtube.com`\n"
         "• `search the web for Python tutorials`\n"
