@@ -32,7 +32,7 @@ HTTPS_PROXY         = os.getenv("HTTPS_PROXY", "") or os.getenv("https_proxy", "
 AI_PROVIDER    = os.getenv("AI_PROVIDER", "claude")   # "claude" or "openai"
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-AI_MODEL       = os.getenv("AI_MODEL", "claude-opus-4-5")
+AI_MODEL       = os.getenv("AI_MODEL", "claude-sonnet-4-6")
 
 # ─── WhatsApp Cloud API (optional) ───────────────────────────────────────────
 # Get credentials from: developers.facebook.com → Your App → WhatsApp → API Setup

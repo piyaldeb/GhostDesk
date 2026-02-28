@@ -181,6 +181,13 @@ def _update_idle(state: ScreenState) -> float:
 
 # ─── Structured Screenshot Analysis ──────────────────────────────────────────
 
+def _screenshot_mime(image_path: str) -> str:
+    """Return correct MIME type based on file extension."""
+    ext = image_path.lower().rsplit(".", 1)[-1]
+    return {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/png")
+
+
 def analyze_screenshot_structured(image_path: str) -> dict:
     """
     Send a screenshot to Vision AI and return the 8-category structured analysis dict.
@@ -190,6 +197,7 @@ def analyze_screenshot_structured(image_path: str) -> dict:
         from config import AI_PROVIDER, CLAUDE_API_KEY, OPENAI_API_KEY, AI_MODEL
 
         img_b64 = _encode_image(image_path)
+        mime = _screenshot_mime(image_path)
 
         if AI_PROVIDER == "claude":
             import anthropic
@@ -202,7 +210,7 @@ def analyze_screenshot_structured(image_path: str) -> dict:
                     "content": [
                         {
                             "type": "image",
-                            "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64},
+                            "source": {"type": "base64", "media_type": mime, "data": img_b64},
                         },
                         {"type": "text", "text": ANALYSIS_PROMPT},
                     ],
@@ -220,7 +228,7 @@ def analyze_screenshot_structured(image_path: str) -> dict:
                     "role": "user",
                     "content": [
                         {"type": "text", "text": ANALYSIS_PROMPT},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
+                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{img_b64}"}},
                     ],
                 }],
             )
@@ -238,7 +246,7 @@ def analyze_screenshot_structured(image_path: str) -> dict:
         return json.loads(raw)
 
     except Exception as e:
-        logger.debug(f"Screen analysis error: {e}")
+        logger.warning(f"Screen analysis error: {e}")
         return dict(_EMPTY_ANALYSIS)
 
 
