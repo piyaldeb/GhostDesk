@@ -1022,6 +1022,15 @@ def main():
         except Exception as e:
             logger.warning(f"Workflow scheduler init failed: {e}")
 
+        # ── Playwright browser pre-install (background, non-blocking) ───────
+        async def _install_playwright():
+            try:
+                from modules.browser import _ensure_playwright_browsers
+                await asyncio.get_event_loop().run_in_executor(None, _ensure_playwright_browsers)
+            except Exception as e:
+                logger.warning(f"Playwright pre-install failed: {e}")
+        asyncio.ensure_future(_install_playwright())
+
         # ── Auto-start registration ──────────────────────────────────────────
         try:
             from modules.pc_control import is_autostart_enabled, enable_autostart

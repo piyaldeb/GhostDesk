@@ -10,19 +10,39 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def _chromium_exe_path() -> Optional[str]:
+    """Return the expected Playwright chromium executable path, or None if not found."""
+    try:
+        import glob, os
+        base = os.path.join(os.environ.get("LOCALAPPDATA", ""), "ms-playwright")
+        hits = glob.glob(os.path.join(base, "chromium-*", "chrome-win64", "chrome.exe"))
+        if hits:
+            return hits[0]
+        # Mac / Linux
+        hits2 = glob.glob(os.path.join(os.path.expanduser("~"), ".cache", "ms-playwright",
+                                        "chromium-*", "chrome-linux", "chrome"))
+        return hits2[0] if hits2 else None
+    except Exception:
+        return None
+
+
 def _ensure_playwright_browsers():
-    """Auto-install Playwright browsers if they are missing (runs once on first use)."""
-    import subprocess
-    import sys
+    """Install Playwright chromium browser if the binary is missing."""
+    import subprocess, sys
+    # Fast-path: binary already present
+    if _chromium_exe_path():
+        logger.debug("Playwright chromium already installed — skipping install.")
+        return
+    logger.info("Playwright chromium not found — installing (this takes ~1 min)...")
     try:
         result = subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=300,
         )
         if result.returncode == 0:
             logger.info("Playwright chromium installed successfully.")
         else:
-            logger.warning(f"playwright install chromium failed: {result.stderr[:200]}")
+            logger.warning(f"playwright install chromium failed:\n{result.stderr[:400]}")
     except Exception as e:
         logger.warning(f"Could not auto-install Playwright browsers: {e}")
 
