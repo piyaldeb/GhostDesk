@@ -364,7 +364,10 @@ async def cmd_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text("⏳ Pulling latest update, please wait...")
     from modules.pc_control import update_ghostdesk
-    result = update_ghostdesk(restart=True)
+    # Run blocking git/pip calls in a thread so the event loop stays responsive
+    result = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: update_ghostdesk(restart=True)
+    )
     await update.message.reply_text(result["text"], parse_mode=ParseMode.MARKDOWN)
 
 

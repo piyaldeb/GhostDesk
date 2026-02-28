@@ -605,12 +605,34 @@ def update_ghostdesk(restart: bool = True) -> dict:
         lines.append("✅ pip upgrade complete.")
 
     if restart:
-        lines.append("🔄 Restarting GhostDesk in 2 seconds...")
+        lines.append("🔄 Restarting GhostDesk in 3 seconds...")
 
         def _do_restart():
             import time
-            time.sleep(2)
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            time.sleep(3)
+
+            # Build the right restart command depending on how we were launched
+            argv0 = sys.argv[0] if sys.argv else ""
+
+            if argv0.endswith((".py",)):
+                # Launched as: python main.py
+                cmd = [sys.executable] + sys.argv
+            elif "ghostdesk" in argv0.lower() and not argv0.endswith(".py"):
+                # Launched as: ghostdesk  (console script — .exe on Windows or shebang on Unix)
+                # Re-run the same entry-point script via sys.executable so it works cross-platform
+                cmd = [sys.executable, "-m", "ghostpc.main"]
+            else:
+                # Fallback: re-run as module
+                cmd = [sys.executable, "-m", "ghostpc.main"]
+
+            import subprocess
+            creationflags = 0
+            if os.name == "nt":
+                # Detach from current console so the new process lives independently
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+
+            subprocess.Popen(cmd, cwd=str(pkg_dir), creationflags=creationflags)
+            os._exit(0)  # Hard-exit current process; new one is already starting
 
         threading.Thread(target=_do_restart, daemon=False).start()
 
