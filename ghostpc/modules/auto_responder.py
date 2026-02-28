@@ -93,12 +93,37 @@ async def process_incoming(
     days = AUTO_RESPOND_CONTEXT_DAYS
     history = get_conversation_history(contact, source, days=days)
 
-    # 3. Generate suggested reply
+    owner_chat = chat_id or int(TELEGRAM_CHAT_ID)
+
+    # ── Ghost mode bypass ─────────────────────────────────────────────────────
+    # When ghost mode is active for this contact, always auto-send in the user's
+    # cloned style — never put into the approval queue.
+    # The session's "notify" flag controls whether the owner gets a Telegram ping.
+    try:
+        from config import PERSONALITY_CLONE_ENABLED
+        if PERSONALITY_CLONE_ENABLED:
+            from modules.personality import get_ghost_session
+            ghost_session = get_ghost_session(contact)
+            if ghost_session:
+                suggested = await _generate_reply(contact, contact_name, incoming_message, history, days)
+                await _send_reply(contact, source, suggested, email_id=email_id, email_subject=email_subject)
+                log_conversation(source, contact, suggested, direction="out")
+                if ghost_session.get("notify") and bot:
+                    name = contact_name or contact
+                    await bot.bot.send_message(
+                        chat_id=owner_chat,
+                        text=f"👻 Auto-replied to *{name}* ({source}):\n\n_{suggested}_",
+                        parse_mode="Markdown",
+                    )
+                logger.info(f"Ghost mode auto-reply sent to {contact} (notify={ghost_session.get('notify')})")
+                return
+    except Exception as e:
+        logger.debug(f"Ghost mode bypass check skipped: {e}")
+
+    # 3. Generate suggested reply (standard path)
     suggested = await _generate_reply(contact, contact_name, incoming_message, history, days)
 
     # 4. Decide: suggest (send to Telegram for approval) or auto-send
-    owner_chat = chat_id or int(TELEGRAM_CHAT_ID)
-
     if AUTO_RESPOND_MODE == "auto":
         await _send_reply(contact, source, suggested, email_id=email_id, email_subject=email_subject)
         log_conversation(source, contact, suggested, direction="out")
@@ -129,7 +154,24 @@ async def _generate_reply(
     history: list[dict],
     days: int,
 ) -> str:
-    """Call AI to draft a reply."""
+    """Call AI to draft a reply. Uses personality clone if ghost mode is active."""
+    # ── Ghost mode: reply in user's exact style ──────────────────────────────
+    try:
+        from config import PERSONALITY_CLONE_ENABLED
+        if PERSONALITY_CLONE_ENABLED:
+            from modules.personality import is_ghost_active, generate_reply_as_user
+            if is_ghost_active(contact):
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: generate_reply_as_user(incoming, contact, days=days),
+                )
+                if result.get("success"):
+                    logger.info(f"Ghost mode reply used for {contact}")
+                    return result["reply"]
+    except Exception as e:
+        logger.debug(f"Ghost mode check skipped: {e}")
+
+    # ── Standard AI reply ────────────────────────────────────────────────────
     try:
         from core.ai import get_ai
         ai = get_ai()

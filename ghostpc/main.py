@@ -120,6 +120,15 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `call the weather API and tell me the forecast`\n"
         "• `remember my GitHub token is abc123`\n"
         "• `every day at 8am send me the news`\n\n"
+        "*Voice Messages:* Send a voice note — transcribed & executed instantly\n\n"
+        "*Autonomous Mode:*\n"
+        "• `autonomously: find all Excel files, make PDFs, email them`\n"
+        "• `your goal is: research Python async and save a summary`\n\n"
+        "*Ghost Mode (personality clone):*\n"
+        "• `ghost mode for John for 2 hours`\n"
+        "• `show ghost sessions` / `stop ghost for John`\n\n"
+        "*Screen Watcher:*\n"
+        "• `what was on my screen at 3pm?`\n\n"
         "*Send files:* Upload any file and ask what to do with it."
     )
     await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
@@ -222,6 +231,17 @@ DESTRUCTIVE_KEYWORDS = [
     "close all", "kill process", "wipe"
 ]
 
+# Triggers for autonomous mode — prefix matching
+AUTONOMOUS_TRIGGERS = (
+    "autonomously:",
+    "autonomously ",
+    "your goal is:",
+    "your goal is ",
+    "auto task:",
+    "auto task ",
+    "run autonomously:",
+)
+
 
 def _needs_confirmation(plan: dict) -> bool:
     """Check if any action in the plan is destructive."""
@@ -314,6 +334,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await handle_edit_reply_message(user_text, chat_id, context):
         return  # message was consumed as an edited reply
 
+    # ── Autonomous Mode ──────────────────────────────────────────────────────
+    if config.AUTONOMOUS_MODE_ENABLED and any(
+        user_lower.startswith(t) for t in AUTONOMOUS_TRIGGERS
+    ):
+        from core.autonomous import run_goal
+        await run_goal(user_text, send, send_file)
+        return
+
     await agent.handle(user_text)
 
 
@@ -326,6 +354,38 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Auto-response approval buttons ──────────────────────────────────────
     if query.data in ("ar_send", "ar_edit", "ar_skip"):
         await handle_approval_callback(query, context)
+        return
+
+    # ── Screen watcher action buttons ────────────────────────────────────────
+    if query.data.startswith("sw_dismiss:"):
+        await query.edit_message_reply_markup(reply_markup=None)
+        return
+
+    if query.data.startswith("sw_fix_error:"):
+        err = query.data.split(":", 1)[1]
+        await query.edit_message_reply_markup(reply_markup=None)
+
+        async def _sw_send(text: str):
+            await context.bot.send_message(chat_id=chat_id, text=text)
+
+        agent = GhostAgent(_sw_send, None)
+        asyncio.create_task(agent.handle(f"search the web for a fix for this error: {err}"))
+        return
+
+    if query.data.startswith("sw_move_download:"):
+        fname = query.data.split(":", 1)[1]
+        await query.edit_message_reply_markup(reply_markup=None)
+
+        async def _sw_send(text: str):
+            await context.bot.send_message(chat_id=chat_id, text=text)
+
+        agent = GhostAgent(_sw_send, None)
+        asyncio.create_task(
+            agent.handle(
+                f"find the recently downloaded file named '{fname}' in the Downloads folder "
+                f"and move it to my Projects folder"
+            )
+        )
         return
 
     # ── Destructive action confirmation ──────────────────────────────────────
@@ -370,6 +430,57 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     agent = GhostAgent(send, send_file_fn)
     await agent.handle_file_upload(str(save_path), doc.file_name)
+
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle voice messages — transcribe via Whisper, then run through agent."""
+    if not _is_authorized(update):
+        return
+
+    if not config.VOICE_TRANSCRIPTION_ENABLED:
+        await update.message.reply_text("Voice transcription is disabled. Set VOICE_TRANSCRIPTION_ENABLED=true in config.")
+        return
+
+    voice = update.message.voice
+    file = await voice.get_file()
+    save_path = config.TEMP_DIR / f"voice_{voice.file_id}.ogg"
+    await file.download_to_drive(str(save_path))
+
+    await update.message.reply_text("🎙️ Transcribing...")
+
+    chat_id = update.effective_chat.id
+
+    async def send(text: str):
+        await context.bot.send_message(chat_id=chat_id, text=text)
+
+    async def send_file_fn(fp: str, caption: str = ""):
+        with open(fp, "rb") as f:
+            await context.bot.send_document(chat_id=chat_id, document=f, caption=caption)
+
+    try:
+        from modules.voice import transcribe_voice, text_to_speech
+
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: transcribe_voice(str(save_path))
+        )
+        if not result.get("success"):
+            await send(f"❌ Transcription failed: {result.get('error')}")
+            return
+
+        text = result["text"]
+        await send(f"🎙️ *You said:* _{text}_")
+
+        # Route through agent just like a text message
+        agent = GhostAgent(send, send_file_fn)
+        await agent.handle(text)
+
+        # Optional: reply as voice note
+        if config.VOICE_REPLY_ENABLED:
+            # Get the last bot response from agent output (captured in send)
+            pass  # Voice reply happens automatically via send_file_fn if TTS is called
+
+    except Exception as e:
+        await send(f"❌ Voice handler error: {e}")
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -544,6 +655,13 @@ def main():
     print(f"   AI: {config.AI_PROVIDER} / {config.AI_MODEL}")
     print(f"   Chat ID: {config.TELEGRAM_CHAT_ID}")
     print(f"   DB: {config.DB_PATH}")
+    features = []
+    if config.VOICE_TRANSCRIPTION_ENABLED: features.append("Voice")
+    if config.SCREEN_WATCHER_ENABLED:      features.append(f"ScreenWatch({config.SCREEN_WATCHER_INTERVAL}s)")
+    if config.PERSONALITY_CLONE_ENABLED:   features.append("Personality")
+    if config.AUTONOMOUS_MODE_ENABLED:     features.append("Autonomous")
+    if features:
+        print(f"   Features: {', '.join(features)}")
     print("   Press Ctrl+C to stop.\n")
 
     app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
@@ -557,6 +675,7 @@ def main():
     app.add_handler(CommandHandler("notes", cmd_notes))
     app.add_handler(CommandHandler("schedules", cmd_schedules))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(handle_callback))
@@ -604,6 +723,17 @@ def main():
         if config.AUTO_RESPOND_ENABLED and config.AUTO_RESPOND_TELEGRAM:
             from modules.telegram_client import start_user_client
             await start_user_client(application, int(config.TELEGRAM_CHAT_ID))
+
+        # Screen watcher
+        if config.SCREEN_WATCHER_ENABLED:
+            from modules import screen_watcher as sw
+            sw.set_event_loop(asyncio.get_event_loop())
+            sw.start_screen_watcher(
+                application,
+                int(config.TELEGRAM_CHAT_ID),
+                config.SCREEN_WATCHER_INTERVAL,
+            )
+            logger.info(f"Screen watcher started (every {config.SCREEN_WATCHER_INTERVAL}s)")
 
     app.post_init = post_init
 

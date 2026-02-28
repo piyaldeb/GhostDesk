@@ -70,6 +70,23 @@ EMAIL_POLL_INTERVAL       = int(os.getenv("EMAIL_POLL_INTERVAL", "300"))  # seco
 TELEGRAM_API_ID   = os.getenv("TELEGRAM_API_ID", "")
 TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "")
 
+# ─── Voice Module ─────────────────────────────────────────────────────────────
+# Requires OPENAI_API_KEY even if primary AI provider is Claude
+VOICE_TRANSCRIPTION_ENABLED = os.getenv("VOICE_TRANSCRIPTION_ENABLED", "true").lower() == "true"
+VOICE_REPLY_ENABLED         = os.getenv("VOICE_REPLY_ENABLED", "false").lower() == "true"
+
+# ─── Screen Watcher ───────────────────────────────────────────────────────────
+SCREEN_WATCHER_ENABLED  = os.getenv("SCREEN_WATCHER_ENABLED",  "false").lower() == "true"
+SCREEN_WATCHER_INTERVAL = int(os.getenv("SCREEN_WATCHER_INTERVAL", "30"))   # seconds
+PRIORITY_CONTACTS       = os.getenv("PRIORITY_CONTACTS", "")                 # e.g. "Boss,Manager,John"
+SCREEN_IDLE_SECONDS     = int(os.getenv("SCREEN_IDLE_SECONDS", "180"))       # 3 min idle = walked away
+
+# ─── Personality Clone ────────────────────────────────────────────────────────
+PERSONALITY_CLONE_ENABLED = os.getenv("PERSONALITY_CLONE_ENABLED", "true").lower() == "true"
+
+# ─── Autonomous Mode ──────────────────────────────────────────────────────────
+AUTONOMOUS_MODE_ENABLED = os.getenv("AUTONOMOUS_MODE_ENABLED", "true").lower() == "true"
+
 # ─── Platform flags ───────────────────────────────────────────────────────────
 IS_WINDOWS = sys.platform == "win32"
 IS_MAC     = sys.platform == "darwin"
