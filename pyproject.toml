@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "ghostdesk"
+version = "1.0.0"
+description = "AI-powered Windows/Mac PC remote control agent via Telegram"
+readme = "ghostpc/README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+keywords = ["telegram", "ai", "automation", "remote-control", "claude", "gpt"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+]
+
+dependencies = [
+    # Telegram
+    "python-telegram-bot==20.7",
+    "python-dotenv",
+
+    # AI providers
+    "anthropic",
+    "openai",
+
+    # PC control
+    "pyautogui",
+    "psutil",
+    "pygetwindow",
+    "Pillow",
+
+    # Documents
+    "openpyxl",
+    "pandas",
+    "reportlab",
+    "fpdf2",
+    "python-docx",
+    "PyPDF2",
+    "pdfplumber",
+
+    # Browser automation
+    "playwright",
+
+    # HTTP
+    "requests",
+
+    # Scheduler
+    "apscheduler",
+]
+
+[project.optional-dependencies]
+windows = [
+    "pywin32",
+]
+notifications = [
+    "win10toast",
+]
+audio = [
+    "pycaw",
+    "comtypes",
+]
+
+[project.scripts]
+ghostdesk        = "ghostpc.main:main"
+ghostdesk-setup  = "ghostpc.wizard:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ghostpc*"]
+
+[tool.setuptools.package-data]
+ghostpc = ["modules/whatsapp_bridge.js", "README.md"]

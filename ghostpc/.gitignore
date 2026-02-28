@@ -1,0 +1,48 @@
+# Environment / secrets
+.env
+*.env
+
+# Database
+memory/ghost.db
+memory/*.db
+
+# Logs
+logs/*.log
+logs/
+
+# Temp files
+temp/
+*.tmp
+
+# WhatsApp session
+modules/.whatsapp_session/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node
+node_modules/
+package-lock.json
+
+# Playwright
+.playwright/

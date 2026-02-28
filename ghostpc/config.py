@@ -1,0 +1,62 @@
+# GhostPC Configuration
+# Values are loaded from ~/.ghostdesk/.env (written by `ghostdesk-setup`)
+
+import os
+import sys
+from pathlib import Path
+
+# ─── User data directory (~/.ghostdesk/) ─────────────────────────────────────
+# All runtime data (db, logs, temp) lives here — safe for pip-installed packages
+USER_DATA_DIR = Path.home() / ".ghostdesk"
+USER_DATA_DIR.mkdir(exist_ok=True)
+
+# Load .env from user data dir, then fallback to cwd
+for _env_path in [USER_DATA_DIR / ".env", Path.cwd() / ".env"]:
+    if _env_path.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(str(_env_path))
+        except ImportError:
+            pass
+        break
+
+# ─── Telegram ────────────────────────────────────────────────────────────────
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# ─── AI Provider ─────────────────────────────────────────────────────────────
+AI_PROVIDER    = os.getenv("AI_PROVIDER", "claude")   # "claude" or "openai"
+CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+AI_MODEL       = os.getenv("AI_MODEL", "claude-opus-4-5")
+
+# ─── WhatsApp (optional) ──────────────────────────────────────────────────────
+WHATSAPP_ENABLED = os.getenv("WHATSAPP_ENABLED", "false").lower() == "true"
+
+# ─── Email (optional) ─────────────────────────────────────────────────────────
+EMAIL_IMAP     = os.getenv("EMAIL_IMAP", "")
+EMAIL_SMTP     = os.getenv("EMAIL_SMTP", "")
+EMAIL_ADDRESS  = os.getenv("EMAIL_ADDRESS", "")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
+
+# ─── Agent Behavior ───────────────────────────────────────────────────────────
+AGENT_NAME          = os.getenv("AGENT_NAME", "GhostPC")
+SCREENSHOT_INTERVAL = int(os.getenv("SCREENSHOT_INTERVAL", "0"))
+MEMORY_ENABLED      = os.getenv("MEMORY_ENABLED", "true").lower() == "true"
+MAX_FILE_SEND_MB    = int(os.getenv("MAX_FILE_SEND_MB", "50"))
+
+# ─── Paths (all in ~/.ghostdesk/) ────────────────────────────────────────────
+MEMORY_DIR = USER_DATA_DIR / "memory"
+LOGS_DIR   = USER_DATA_DIR / "logs"
+TEMP_DIR   = USER_DATA_DIR / "temp"
+DB_PATH    = MEMORY_DIR / "ghost.db"
+LOG_PATH   = LOGS_DIR  / "agent.log"
+
+MEMORY_DIR.mkdir(exist_ok=True)
+LOGS_DIR.mkdir(exist_ok=True)
+TEMP_DIR.mkdir(exist_ok=True)
+
+# ─── Platform flags ───────────────────────────────────────────────────────────
+IS_WINDOWS = sys.platform == "win32"
+IS_MAC     = sys.platform == "darwin"
+IS_LINUX   = sys.platform.startswith("linux")

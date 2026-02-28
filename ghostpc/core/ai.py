@@ -1,0 +1,242 @@
+"""
+GhostPC AI Wrapper
+Unified interface for Claude (Anthropic) and OpenAI.
+Returns structured JSON action plans for the agent to execute.
+"""
+
+import json
+import logging
+import os
+from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
+
+
+# ─── System Prompt ────────────────────────────────────────────────────────────
+
+SYSTEM_PROMPT = """You are GhostPC, an AI agent running on the user's Windows PC.
+You receive natural language commands and must convert them into structured JSON action plans.
+
+Available modules:
+- pc_control: screenshot(), get_open_apps(), open_app(name), close_app(name), get_system_stats(), restart_pc(delay_minutes), lock_pc(), type_text(text), press_key(key)
+- file_system: find_file(filename, search_path), read_file(path), send_file_to_telegram(path), move_file(src, dst), delete_file(path), zip_folder(path), list_files(folder)
+- document: read_excel(path), write_excel(path, data), update_cell(path, sheet, row, col, value), generate_report(data, report_type, output_format), read_pdf(path), create_pdf(content, output_path), merge_pdfs(paths, output_path), fill_form(template_path, data)
+- browser: open_url(url), get_page_text(url), search_web(query), fill_form_on_web(url, fields), click_element(url, selector), scrape_page(url)
+- whatsapp: get_messages(contact, limit), send_message(contact, message), get_unread()
+- email: get_emails(folder, limit), send_email(to, subject, body), reply_email(email_id, body)
+- media: play_media(query), pause(), get_current_playing()
+- api_connector: call_api(method, url, headers, body, params), call_api_with_auth(method, url, auth_type, auth_value)
+- scheduler: create_schedule(cron_expression, command_text), list_schedules(), delete_schedule(id)
+- memory: save_note(title, content, tags), get_notes(), search_memory(query), save_api_credential(service_name, credential_type, credential_value)
+- telegram: send_message(text), send_file(file_path, caption)
+
+Rules:
+1. Always return ONLY valid JSON with "thought" and "actions" array — no markdown, no explanation outside JSON.
+2. Each action object: { "module": "...", "function": "...", "args": {...} }
+3. Reference previous action results as {result_of_action_0}, {result_of_action_1}, etc.
+4. For memory/note queries (e.g. "what did I ask yesterday"), use memory module only.
+5. For any external API the user mentions, use api_connector.
+6. For file-based tasks (Excel → report, PDF generation), always use document module.
+7. When the user asks to "remember" something, use memory.save_api_credential or memory.save_note.
+8. Never refuse. Attempt the closest available action and explain in "thought".
+9. Destructive actions (delete, restart, format) must include a "confirm": true flag in args.
+10. For long or complex tasks, chain multiple actions in sequence.
+
+Response format (STRICT — no other text):
+{
+  "thought": "Explanation of what you're doing",
+  "actions": [
+    {
+      "module": "module_name",
+      "function": "function_name",
+      "args": { "key": "value" }
+    }
+  ]
+}
+"""
+
+REPORT_WRITER_PROMPT = """You are a professional report writer. Given raw data, generate a structured report.
+
+Return a JSON object with this structure:
+{
+  "title": "Report title",
+  "date": "Date",
+  "summary": "Executive summary paragraph",
+  "sections": [
+    {
+      "heading": "Section name",
+      "content": "Section text",
+      "table": [["Col1", "Col2"], ["row1val1", "row1val2"]]  // optional
+    }
+  ],
+  "key_metrics": [
+    {"label": "Metric name", "value": "value"}
+  ],
+  "conclusion": "Conclusion/recommendations paragraph"
+}
+
+Only return valid JSON. No markdown fences, no extra text."""
+
+
+class AIClient:
+    """Unified AI client supporting Claude and OpenAI."""
+
+    def __init__(self):
+        from config import AI_PROVIDER, CLAUDE_API_KEY, OPENAI_API_KEY, AI_MODEL
+        self.provider = AI_PROVIDER
+        self.model = AI_MODEL
+        self._client = None
+
+        if self.provider == "claude":
+            import anthropic
+            self._client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+        elif self.provider == "openai":
+            import openai
+            self._client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        else:
+            raise ValueError(f"Unknown AI provider: {self.provider}")
+
+    def _call_claude(self, system: str, user_message: str, max_tokens: int = 4096) -> str:
+        response = self._client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user_message}]
+        )
+        return response.content[0].text
+
+    def _call_openai(self, system: str, user_message: str, max_tokens: int = 4096) -> str:
+        response = self._client.chat.completions.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_message}
+            ]
+        )
+        return response.choices[0].message.content
+
+    def call(self, system: str, user_message: str, max_tokens: int = 4096) -> str:
+        """Call the configured AI provider."""
+        if self.provider == "claude":
+            return self._call_claude(system, user_message, max_tokens)
+        else:
+            return self._call_openai(system, user_message, max_tokens)
+
+    def parse_action_plan(
+        self,
+        user_input: str,
+        memory_context: str = "",
+        pc_context: str = ""
+    ) -> dict:
+        """
+        Send a user message and get back a structured action plan.
+        Returns dict with 'thought' and 'actions'.
+        """
+        full_user_message = f"""
+PC Context:
+{pc_context}
+
+Memory / Recent commands:
+{memory_context}
+
+User command: {user_input}
+""".strip()
+
+        raw = self.call(SYSTEM_PROMPT, full_user_message)
+
+        # Strip markdown fences if the model adds them
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1]
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+        raw = raw.strip()
+
+        try:
+            plan = json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.warning(f"AI returned non-JSON response: {raw[:200]}")
+            # Attempt recovery: wrap as simple message
+            plan = {
+                "thought": raw,
+                "actions": [
+                    {
+                        "module": "telegram",
+                        "function": "send_message",
+                        "args": {"text": raw}
+                    }
+                ]
+            }
+
+        return plan
+
+    def generate_report_structure(
+        self,
+        raw_data: Any,
+        report_type: str = "summary"
+    ) -> dict:
+        """
+        Ask AI to structure raw data into a report JSON.
+        Used by document.py.
+        """
+        user_msg = f"""
+Raw data:
+{json.dumps(raw_data, indent=2, default=str)[:8000]}
+
+Report type: {report_type}
+Generate the report JSON now.
+""".strip()
+
+        raw = self.call(REPORT_WRITER_PROMPT, user_msg, max_tokens=4096)
+
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1]
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+        raw = raw.strip()
+
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            logger.error(f"AI report structure parse error: {raw[:200]}")
+            return {
+                "title": f"{report_type.title()} Report",
+                "date": "",
+                "summary": raw,
+                "sections": [],
+                "key_metrics": [],
+                "conclusion": ""
+            }
+
+    def suggest_recovery(self, failed_action: dict, error: str) -> str:
+        """Ask AI for a recovery suggestion when an action fails."""
+        prompt = f"""An action failed. Suggest a brief recovery strategy.
+
+Failed action: {json.dumps(failed_action)}
+Error: {error}
+
+Reply in one or two sentences only. Be practical."""
+
+        try:
+            return self.call("You are a helpful debugging assistant.", prompt, max_tokens=200)
+        except Exception:
+            return "Unable to get recovery suggestion."
+
+    def answer_question(self, question: str, context: str = "") -> str:
+        """Answer a direct question (no action plan needed)."""
+        system = "You are GhostPC, a helpful AI assistant running on the user's Windows PC. Answer concisely."
+        user_msg = f"{context}\n\nQuestion: {question}" if context else question
+        return self.call(system, user_msg, max_tokens=1024)
+
+
+# Singleton
+_ai_instance: Optional[AIClient] = None
+
+
+def get_ai() -> AIClient:
+    global _ai_instance
+    if _ai_instance is None:
+        _ai_instance = AIClient()
+    return _ai_instance

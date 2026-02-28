@@ -1,0 +1,42 @@
+# ─── Core / Telegram ─────────────────────────────────────────────────────────
+python-telegram-bot==20.7
+python-dotenv
+
+# ─── AI Providers ────────────────────────────────────────────────────────────
+anthropic
+openai
+
+# ─── PC Control ──────────────────────────────────────────────────────────────
+pyautogui
+psutil
+pygetwindow
+pywin32          # Windows-only: ctypes windll, clipboard, etc.
+Pillow           # Required by pyautogui for screenshots
+
+# ─── Document / Office ───────────────────────────────────────────────────────
+openpyxl         # Excel read/write
+pandas           # Data manipulation
+reportlab        # PDF generation (primary)
+fpdf2            # PDF generation (fallback)
+python-docx      # DOCX generation
+PyPDF2           # PDF merge/read
+pdfplumber       # PDF text extraction (better than PyPDF2)
+
+# ─── Browser Automation ──────────────────────────────────────────────────────
+playwright       # Run: playwright install chromium
+
+# ─── HTTP / APIs ─────────────────────────────────────────────────────────────
+requests
+
+# ─── Scheduler ───────────────────────────────────────────────────────────────
+apscheduler
+
+# ─── Database ────────────────────────────────────────────────────────────────
+# sqlite3 is part of Python stdlib — no install needed
+
+# ─── Optional: Volume control ────────────────────────────────────────────────
+# pycaw           # Windows audio control (install separately if needed)
+# comtypes        # Required by pycaw
+
+# ─── Optional: Windows notifications ─────────────────────────────────────────
+# win10toast      # Windows toast notifications (install separately if needed)
