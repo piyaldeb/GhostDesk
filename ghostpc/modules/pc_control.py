@@ -567,6 +567,18 @@ def update_ghostdesk(restart: bool = True) -> dict:
     git_dir = pkg_dir / ".git"
     lines   = []
 
+    # Clean up corrupted ~ partial installs left by interrupted pip runs
+    try:
+        import site, shutil
+        for sp in site.getsitepackages():
+            for broken in Path(sp).glob("~*"):
+                try:
+                    shutil.rmtree(broken) if broken.is_dir() else broken.unlink()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     if git_dir.exists():
         # git pull
         pull = subprocess.run(

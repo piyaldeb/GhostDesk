@@ -383,11 +383,22 @@ async def cmd_reinstall(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     def _do_reinstall():
-        import subprocess, sys
+        import subprocess, sys, glob, shutil
         from pathlib import Path
         pkg_dir = Path(__file__).parent.parent
 
         lines = []
+
+        # Clean up corrupted ~ partial installs left by interrupted pip runs
+        import site
+        for sp in site.getsitepackages():
+            for broken in Path(sp).glob("~*"):
+                try:
+                    shutil.rmtree(broken) if broken.is_dir() else broken.unlink()
+                except Exception:
+                    pass
+        lines.append("🧹 Cleaned stale pip remnants.")
+
         # git pull
         pull = subprocess.run(["git", "pull"], cwd=str(pkg_dir),
                               capture_output=True, text=True, timeout=60)
