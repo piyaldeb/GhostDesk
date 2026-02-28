@@ -1022,6 +1022,45 @@ def main():
         except Exception as e:
             logger.warning(f"Workflow scheduler init failed: {e}")
 
+        # ── Auto-start registration ──────────────────────────────────────────
+        try:
+            from modules.pc_control import is_autostart_enabled, enable_autostart
+            if not is_autostart_enabled():
+                result = enable_autostart()
+                if result["success"]:
+                    logger.info("GhostDesk registered for Windows autostart.")
+                    await application.bot.send_message(
+                        chat_id=int(config.TELEGRAM_CHAT_ID),
+                        text="🚀 *GhostDesk will now start automatically when Windows boots.*\nSay `disable autostart` to turn this off.",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+        except Exception as e:
+            logger.warning(f"Autostart registration failed: {e}")
+
+        # ── Missed schedule check ────────────────────────────────────────────
+        try:
+            from core.scheduler import check_missed_schedules
+            missed = await asyncio.get_event_loop().run_in_executor(
+                None, check_missed_schedules
+            )
+            if missed:
+                chat_id = int(config.TELEGRAM_CHAT_ID)
+                lines = ["⏰ *Missed Schedules (PC was off):*\n"]
+                for m in missed:
+                    lines.append(
+                        f"• `[{m['id']}]` Was due at *{m['missed_at']}*\n"
+                        f"  ↳ `{m['command'][:60]}`"
+                    )
+                lines.append("\nReply with the schedule ID to run it now, e.g. `run schedule 2`.")
+                await application.bot.send_message(
+                    chat_id=chat_id,
+                    text="\n".join(lines),
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                logger.info(f"Notified user of {len(missed)} missed schedule(s).")
+        except Exception as e:
+            logger.warning(f"Missed schedule check failed: {e}")
+
     app.post_init = post_init
 
     # Run Telegram bot (blocking)

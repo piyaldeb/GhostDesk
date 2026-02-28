@@ -6,7 +6,7 @@ through the same agent pipeline as if the user typed them in Telegram.
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -239,3 +239,49 @@ def delete_schedule(id: int) -> dict:
         return {"success": True, "text": f"✅ Schedule {id} deleted."}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def check_missed_schedules(lookback_hours: int = 24) -> list[dict]:
+    """
+    Return any schedules that should have fired while the PC was off.
+    Compares each schedule's last_run against the cron's next expected fire time.
+    Only looks back up to `lookback_hours` to avoid ancient missed-run spam.
+    """
+    missed = []
+    try:
+        from core.memory import get_active_schedules
+        from apscheduler.triggers.cron import CronTrigger
+
+        schedules = get_active_schedules()
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(hours=lookback_hours)
+
+        for s in schedules:
+            try:
+                cron = _parse_human_schedule(s["cron_expression"])
+                trigger = CronTrigger.from_crontab(cron, timezone="UTC")
+
+                # Reference: the later of last_run and the lookback cutoff
+                if s["last_run"]:
+                    ref_naive = datetime.fromisoformat(s["last_run"])
+                    ref = ref_naive.replace(tzinfo=timezone.utc) if ref_naive.tzinfo is None else ref_naive
+                    ref = max(ref, cutoff)
+                else:
+                    ref = cutoff
+
+                # Find the next fire time after ref; if it's already past, it was missed
+                next_fire = trigger.get_next_fire_time(None, ref)
+                if next_fire and next_fire < now:
+                    missed.append({
+                        "id": s["id"],
+                        "cron": s["cron_expression"],
+                        "command": s["command_text"],
+                        "missed_at": next_fire.strftime("%Y-%m-%d %H:%M UTC"),
+                    })
+            except Exception as e:
+                logger.warning(f"Could not check schedule {s['id']} for missed runs: {e}")
+
+    except Exception as e:
+        logger.warning(f"check_missed_schedules error: {e}")
+
+    return missed

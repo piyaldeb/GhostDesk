@@ -639,6 +639,71 @@ def update_ghostdesk(restart: bool = True) -> dict:
     return {"success": True, "text": "\n".join(lines), "restarting": restart}
 
 
+# ─── Autostart ────────────────────────────────────────────────────────────────
+
+_AUTOSTART_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_AUTOSTART_NAME = "GhostDesk"
+
+
+def is_autostart_enabled() -> bool:
+    """Return True if GhostDesk is registered for Windows autostart."""
+    if not IS_WINDOWS:
+        return False
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_KEY, 0, winreg.KEY_READ)
+        try:
+            winreg.QueryValueEx(key, _AUTOSTART_NAME)
+            return True
+        except FileNotFoundError:
+            return False
+        finally:
+            winreg.CloseKey(key)
+    except Exception:
+        return False
+
+
+def _build_autostart_cmd() -> str:
+    """Build the command string that Windows should run on login."""
+    argv0 = sys.argv[0] if sys.argv else ""
+    if argv0.endswith(".py"):
+        return f'"{sys.executable}" "{argv0}"'
+    # Installed via pip (ghostdesk entry-point .exe) or -m invocation
+    return f'"{sys.executable}" -m ghostpc.main'
+
+
+def enable_autostart() -> dict:
+    """Register GhostDesk to start automatically when Windows boots."""
+    if not IS_WINDOWS:
+        return {"success": False, "error": "Autostart via registry is Windows-only."}
+    try:
+        import winreg
+        cmd = _build_autostart_cmd()
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_KEY, 0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(key, _AUTOSTART_NAME, 0, winreg.REG_SZ, cmd)
+        winreg.CloseKey(key)
+        return {"success": True, "text": f"✅ GhostDesk will now start automatically on Windows login.\nCommand: {cmd}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def disable_autostart() -> dict:
+    """Remove GhostDesk from Windows startup."""
+    if not IS_WINDOWS:
+        return {"success": False, "error": "Windows only."}
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_KEY, 0, winreg.KEY_SET_VALUE)
+        try:
+            winreg.DeleteValue(key, _AUTOSTART_NAME)
+        except FileNotFoundError:
+            pass
+        winreg.CloseKey(key)
+        return {"success": True, "text": "✅ GhostDesk removed from Windows startup."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def get_remote_access_guide() -> dict:
     """Return a guide on how to remotely wake and access this PC."""
     import socket
