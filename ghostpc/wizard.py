@@ -10,6 +10,8 @@ import json
 import requests
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+
 # Save .env to ~/.ghostdesk/ so it works whether installed via pip or cloned
 USER_DATA_DIR = Path.home() / ".ghostdesk"
 USER_DATA_DIR.mkdir(exist_ok=True)
@@ -255,6 +257,50 @@ def setup_auto_response(config: dict) -> dict:
     return config
 
 
+def setup_voice(config: dict) -> dict:
+    print("\n─── Step 6: Voice Module (Optional) ────────────────────")
+    print("  Send voice notes to GhostDesk — they're transcribed via OpenAI Whisper")
+    print("  and executed as commands. Requires OPENAI_API_KEY (even if using Claude).")
+    enable = ask("  Enable voice transcription? (y/n)", default="y")
+    config["VOICE_TRANSCRIPTION_ENABLED"] = enable.lower() == "y"
+    if enable.lower() == "y":
+        reply = ask("  Also reply back as voice notes? (y/n)", default="n")
+        config["VOICE_REPLY_ENABLED"] = reply.lower() == "y"
+    else:
+        config["VOICE_REPLY_ENABLED"] = False
+    return config
+
+
+def setup_screen_watcher(config: dict) -> dict:
+    print("\n─── Step 7: Screen Watcher (Optional) ──────────────────")
+    print("  GhostDesk watches your screen every N seconds for errors, crashes,")
+    print("  security alerts, and unusual activity. Alerts arrive instantly on Telegram.")
+    enable = ask("  Enable screen watcher? (y/n)", default="n")
+    config["SCREEN_WATCHER_ENABLED"] = enable.lower() == "y"
+    if enable.lower() == "y":
+        interval = ask("  Screenshot interval in seconds (30 = every 30s)", default="30")
+        config["SCREEN_WATCHER_INTERVAL"] = interval
+    else:
+        config["SCREEN_WATCHER_INTERVAL"] = "30"
+    return config
+
+
+def setup_advanced(config: dict) -> dict:
+    print("\n─── Step 8: Advanced AI Features ───────────────────────")
+    print("\n  Personality Clone + Ghost Mode:")
+    print("  GhostDesk analyzes your message history and can reply to contacts")
+    print("  sounding exactly like you. Ghost Mode auto-replies for a set duration.")
+    pc = ask("  Enable personality clone / ghost mode? (y/n)", default="y")
+    config["PERSONALITY_CLONE_ENABLED"] = pc.lower() == "y"
+
+    print("\n  Autonomous Mode:")
+    print("  Say 'autonomously: [complex goal]' and GhostDesk plans and executes")
+    print("  multi-step tasks on its own, reporting progress step by step.")
+    am = ask("  Enable autonomous mode? (y/n)", default="y")
+    config["AUTONOMOUS_MODE_ENABLED"] = am.lower() == "y"
+    return config
+
+
 def write_env_file(config: dict):
     """Write config to .env file."""
     lines = [
@@ -292,6 +338,15 @@ def write_env_file(config: dict):
         "EMAIL_POLL_INTERVAL":      str(config.get("EMAIL_POLL_INTERVAL", "300")),
         "TELEGRAM_API_ID":          str(config.get("TELEGRAM_API_ID", "")),
         "TELEGRAM_API_HASH":        config.get("TELEGRAM_API_HASH", ""),
+        # Voice
+        "VOICE_TRANSCRIPTION_ENABLED": b(config.get("VOICE_TRANSCRIPTION_ENABLED", True)),
+        "VOICE_REPLY_ENABLED":         b(config.get("VOICE_REPLY_ENABLED", False)),
+        # Screen Watcher
+        "SCREEN_WATCHER_ENABLED":      b(config.get("SCREEN_WATCHER_ENABLED", False)),
+        "SCREEN_WATCHER_INTERVAL":     str(config.get("SCREEN_WATCHER_INTERVAL", "30")),
+        # Advanced
+        "PERSONALITY_CLONE_ENABLED":   b(config.get("PERSONALITY_CLONE_ENABLED", True)),
+        "AUTONOMOUS_MODE_ENABLED":     b(config.get("AUTONOMOUS_MODE_ENABLED", True)),
     }
 
     for k, v in key_map.items():
@@ -313,6 +368,9 @@ def main():
         config = setup_whatsapp(config)
         config = setup_email(config)
         config = setup_auto_response(config)
+        config = setup_voice(config)
+        config = setup_screen_watcher(config)
+        config = setup_advanced(config)
 
         print("\n─── Saving Configuration ───────────────────────────────")
         write_env_file(config)

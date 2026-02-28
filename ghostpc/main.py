@@ -11,6 +11,10 @@ import sys
 import threading
 from pathlib import Path
 
+# When installed via pip, bare imports (import config, from core.x import)
+# need the package directory on sys.path.
+sys.path.insert(0, str(Path(__file__).parent))
+
 # Load .env before importing config
 try:
     from dotenv import load_dotenv
