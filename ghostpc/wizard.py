@@ -42,13 +42,11 @@ def ask(prompt: str, default: str = "", secret: bool = False) -> str:
     return value if value else default
 
 
-def verify_telegram(token: str) -> tuple[bool, str]:
-    """Verify Telegram bot token via API."""
+def verify_telegram(token: str, api_base: str = "") -> tuple[bool, str]:
+    """Verify Telegram bot token via API (optionally through a proxy base URL)."""
+    base = api_base.rstrip("/") if api_base else "https://api.telegram.org"
     try:
-        resp = requests.get(
-            f"https://api.telegram.org/bot{token}/getMe",
-            timeout=10
-        )
+        resp = requests.get(f"{base}/bot{token}/getMe", timeout=10)
         data = resp.json()
         if data.get("ok"):
             bot_name = data["result"]["first_name"]
@@ -59,8 +57,9 @@ def verify_telegram(token: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-def get_telegram_chat_id(token: str) -> str:
+def get_telegram_chat_id(token: str, api_base: str = "") -> str:
     """Get chat ID by asking user to send a message to the bot."""
+    base = api_base.rstrip("/") if api_base else "https://api.telegram.org"
     print("\n  📱 To get your Chat ID:")
     print("     1. Open Telegram")
     print("     2. Search for your bot and send it: /start")
@@ -68,10 +67,7 @@ def get_telegram_chat_id(token: str) -> str:
     input("\n  Press Enter after sending /start to your bot...")
 
     try:
-        resp = requests.get(
-            f"https://api.telegram.org/bot{token}/getUpdates",
-            timeout=10
-        )
+        resp = requests.get(f"{base}/bot{token}/getUpdates", timeout=10)
         data = resp.json()
         if data.get("ok") and data["result"]:
             chat_id = str(data["result"][-1]["message"]["chat"]["id"])
@@ -81,6 +77,39 @@ def get_telegram_chat_id(token: str) -> str:
     except Exception as e:
         print(f"  ⚠️  Error: {e}")
         return ask("  Enter your Chat ID manually")
+
+
+def setup_network(config: dict) -> dict:
+    """Step 0: Ask if the user needs a Telegram API proxy (for blocked regions)."""
+    print("\n─── Step 0: Network / Proxy ────────────────────────────")
+    print("  In some countries (e.g. Bangladesh, Iran, Russia) Telegram")
+    print("  is blocked at the network level. GhostDesk supports routing")
+    print("  through a free Cloudflare Worker proxy so no VPN is needed.\n")
+    print("  If you can reach api.telegram.org directly, skip this step.")
+
+    need_proxy = ask("  Is Telegram blocked on your network? (y/n)", default="n")
+    if need_proxy.lower() != "y":
+        config["TELEGRAM_API_BASE"] = ""
+        return config
+
+    print("""
+  📋 Deploy a free Cloudflare Worker proxy in 60 seconds:
+     1. Go to https://workers.cloudflare.com  (free account)
+     2. Click "Create Worker" -> paste the file: telegram-proxy-worker.js
+        (it's in your GhostDesk folder, or on the GitHub repo)
+     3. Click "Save & Deploy"
+     4. Copy the Worker URL shown (e.g. https://ghostdesk-proxy.yourname.workers.dev)
+     5. Paste it below.
+""")
+    proxy_url = ask("  Cloudflare Worker URL (leave blank to skip)", default="")
+    if proxy_url:
+        proxy_url = proxy_url.rstrip("/")
+        config["TELEGRAM_API_BASE"] = proxy_url
+        print(f"  ✅ Proxy set to: {proxy_url}")
+    else:
+        config["TELEGRAM_API_BASE"] = ""
+
+    return config
 
 
 def verify_claude(api_key: str) -> tuple[bool, str]:
@@ -113,6 +142,8 @@ def setup_telegram(config: dict) -> dict:
     print("\n─── Step 1: Telegram Bot ───────────────────────────────")
     print("  Create a bot via @BotFather on Telegram if you haven't.")
 
+    api_base = config.get("TELEGRAM_API_BASE", "")
+
     while True:
         token = ask("  Bot Token", secret=True)
         if not token:
@@ -120,7 +151,7 @@ def setup_telegram(config: dict) -> dict:
             continue
 
         print("  🔍 Verifying token...")
-        ok, msg = verify_telegram(token)
+        ok, msg = verify_telegram(token, api_base)
         if ok:
             print(f"  ✅ Connected: {msg}")
             config["TELEGRAM_BOT_TOKEN"] = token
@@ -131,12 +162,12 @@ def setup_telegram(config: dict) -> dict:
             if retry.lower() != "y":
                 sys.exit(1)
 
-    chat_id = get_telegram_chat_id(token)
+    chat_id = get_telegram_chat_id(token, api_base)
     if chat_id:
         print(f"  ✅ Chat ID: {chat_id}")
         config["TELEGRAM_CHAT_ID"] = chat_id
     else:
-        print("  ⚠️  Could not auto-detect Chat ID. You can set it manually in config.py")
+        print("  ⚠️  Could not auto-detect Chat ID. You can set it manually later.")
 
     return config
 
@@ -314,6 +345,7 @@ def write_env_file(config: dict):
     key_map = {
         "TELEGRAM_BOT_TOKEN":       config.get("TELEGRAM_BOT_TOKEN", ""),
         "TELEGRAM_CHAT_ID":         config.get("TELEGRAM_CHAT_ID", ""),
+        "TELEGRAM_API_BASE":        config.get("TELEGRAM_API_BASE", ""),
         "AI_PROVIDER":              config.get("AI_PROVIDER", "claude"),
         "CLAUDE_API_KEY":           config.get("CLAUDE_API_KEY", ""),
         "OPENAI_API_KEY":           config.get("OPENAI_API_KEY", ""),
@@ -363,6 +395,7 @@ def main():
     config = {}
 
     try:
+        config = setup_network(config)
         config = setup_telegram(config)
         config = setup_ai(config)
         config = setup_whatsapp(config)

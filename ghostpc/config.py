@@ -21,8 +21,12 @@ for _env_path in [USER_DATA_DIR / ".env", Path.cwd() / ".env"]:
         break
 
 # ─── Telegram ────────────────────────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
+TELEGRAM_BOT_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID    = os.getenv("TELEGRAM_CHAT_ID", "")
+# Optional: point to a Cloudflare Worker or any reverse proxy for api.telegram.org
+# e.g. TELEGRAM_API_BASE=https://myproxy.workers.dev
+TELEGRAM_API_BASE   = os.getenv("TELEGRAM_API_BASE", "").rstrip("/")
+HTTPS_PROXY         = os.getenv("HTTPS_PROXY", "") or os.getenv("https_proxy", "")
 
 # ─── AI Provider ─────────────────────────────────────────────────────────────
 AI_PROVIDER    = os.getenv("AI_PROVIDER", "claude")   # "claude" or "openai"

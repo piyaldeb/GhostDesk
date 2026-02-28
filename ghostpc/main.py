@@ -51,6 +51,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+from telegram.request import HTTPXRequest
 from telegram.constants import ParseMode
 
 from core.memory import init_db, get_recent_commands, get_notes, get_active_schedules
@@ -668,7 +669,24 @@ def main():
         print(f"   Features: {', '.join(features)}")
     print("   Press Ctrl+C to stop.\n")
 
-    app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+    # Build Application — support Cloudflare Worker proxy or SOCKS5/HTTP proxy
+    _builder = Application.builder().token(config.TELEGRAM_BOT_TOKEN)
+
+    if config.TELEGRAM_API_BASE:
+        # Route all Bot API calls through the proxy (e.g. Cloudflare Worker)
+        _builder = (
+            _builder
+            .base_url(f"{config.TELEGRAM_API_BASE}/bot")
+            .base_file_url(f"{config.TELEGRAM_API_BASE}/file/bot")
+        )
+        logger.info("Using Telegram API proxy: %s", config.TELEGRAM_API_BASE)
+
+    if config.HTTPS_PROXY:
+        # SOCKS5/HTTP proxy for direct Telegram API access behind a firewall
+        _builder = _builder.request(HTTPXRequest(proxy=config.HTTPS_PROXY))
+        logger.info("Using HTTPS proxy: %s", config.HTTPS_PROXY)
+
+    app = _builder.build()
 
     # Register handlers
     app.add_handler(CommandHandler("start", cmd_start))
