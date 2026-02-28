@@ -108,35 +108,151 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_authorized(update):
         return
 
+    # Detect which features are active so help is personalised
+    features_on  = []
+    features_off = []
+
+    if config.WHATSAPP_ENABLED and config.WHATSAPP_ACCESS_TOKEN:
+        features_on.append("WhatsApp")
+    else:
+        features_off.append("WhatsApp — add WHATSAPP_ACCESS_TOKEN + WHATSAPP_PHONE_ID in .env (run `ghostdesk-config`)")
+
+    if config.EMAIL_ADDRESS:
+        features_on.append("Email")
+    else:
+        features_off.append("Email — add EMAIL_ADDRESS + EMAIL_PASSWORD in .env")
+
+    if config.SCREEN_WATCHER_ENABLED:
+        features_on.append(f"Screen Watcher (every {config.SCREEN_WATCHER_INTERVAL}s)")
+    else:
+        features_off.append("Screen Watcher — set SCREEN_WATCHER_ENABLED=true in .env")
+
+    if config.AUTO_RESPOND_ENABLED:
+        features_on.append(f"Auto-Response ({config.AUTO_RESPOND_MODE} mode)")
+    else:
+        features_off.append("Auto-Response — set AUTO_RESPOND_ENABLED=true in .env")
+
+    if config.VOICE_TRANSCRIPTION_ENABLED:
+        features_on.append("Voice transcription")
+
+    if config.PERSONALITY_CLONE_ENABLED:
+        features_on.append("Personality Clone / Ghost Mode")
+
+    if config.AUTONOMOUS_MODE_ENABLED:
+        features_on.append("Autonomous Mode")
+
+    active_block = ("✅ Active: " + ", ".join(features_on)) if features_on else ""
+    inactive_block = ""
+    if features_off:
+        inactive_block = "\n\n⚙️ *Not configured yet:*\n" + "\n".join(f"  • {f}" for f in features_off)
+        inactive_block += "\n\nRun `ghostdesk-config` in CMD to edit .env, or `ghostdesk-setup` to re-run the wizard."
+
     help_text = (
-        "👻 *GhostPC Help*\n\n"
-        "*Built-in Commands:*\n"
-        "/start — Welcome message\n"
-        "/screenshot — Take & send screenshot now\n"
-        "/stats — System stats (CPU, RAM, disk)\n"
-        "/memory — Last 10 commands\n"
-        "/notes — List saved notes\n"
+        "👻 *GhostPC — Full Guide*\n\n"
+
+        + (active_block + "\n\n" if active_block else "")
+
+        + "─────────────────────────\n"
+        "*📌 Slash Commands*\n"
+        "/screenshot — Take a screenshot now\n"
+        "/stats — CPU, RAM, disk, uptime\n"
+        "/memory — Your last 10 commands\n"
+        "/notes — Saved notes & reminders\n"
         "/schedules — Active scheduled tasks\n"
-        "/help — This message\n\n"
-        "*Just type anything naturally:*\n"
-        "• `open Downloads folder`\n"
-        "• `find report.xlsx and convert to PDF`\n"
-        "• `check my Gmail for unread emails`\n"
-        "• `call the weather API and tell me the forecast`\n"
-        "• `remember my GitHub token is abc123`\n"
-        "• `every day at 8am send me the news`\n\n"
-        "*Voice Messages:* Send a voice note — transcribed & executed instantly\n\n"
-        "*Autonomous Mode:*\n"
-        "• `autonomously: find all Excel files, make PDFs, email them`\n"
-        "• `your goal is: research Python async and save a summary`\n\n"
-        "*Ghost Mode (personality clone):*\n"
-        "• `ghost mode for John for 2 hours`\n"
-        "• `show ghost sessions` / `stop ghost for John`\n\n"
-        "*Screen Watcher:*\n"
-        "• `what was on my screen at 3pm?`\n\n"
-        "*Send files:* Upload any file and ask what to do with it."
+        "/help — This guide\n\n"
+
+        "─────────────────────────\n"
+        "*🖥️ PC Control*\n"
+        "• `take a screenshot`\n"
+        "• `what apps are open`\n"
+        "• `open Notepad` / `close Chrome`\n"
+        "• `type hello world`\n"
+        "• `press Ctrl+S`\n"
+        "• `lock the PC` / `restart in 5 minutes`\n\n"
+
+        "─────────────────────────\n"
+        "*📁 Files & Documents*\n"
+        "• `find report.xlsx in Downloads`\n"
+        "• `read the file C:\\Users\\me\\notes.txt`\n"
+        "• `zip my Desktop folder and send it`\n"
+        "• `convert report.xlsx to PDF`\n"
+        "• `create a PDF: Dear John, meeting at 3pm`\n"
+        "• `merge all PDFs in my Desktop`\n\n"
+
+        "─────────────────────────\n"
+        "*🌐 Browser & Web*\n"
+        "• `open youtube.com`\n"
+        "• `search the web for Python tutorials`\n"
+        "• `get the text from bbc.com/news`\n"
+        "• `fill the login form on example.com`\n\n"
+
+        "─────────────────────────\n"
+        "*🧠 Memory & Notes*\n"
+        "• `remember my server password is abc123`\n"
+        "• `save a note: buy groceries tomorrow`\n"
+        "• `search my notes for password`\n"
+        "• `what did I ask you yesterday?`\n\n"
+
+        "─────────────────────────\n"
+        "*⏰ Scheduler*\n"
+        "• `every day at 9am take a screenshot`\n"
+        "• `every Monday at 8am send me system stats`\n"
+        "• `every 30 minutes check for new emails`\n"
+        "• `/schedules` → then `delete schedule 2`\n\n"
+
+        "─────────────────────────\n"
+        "*📱 WhatsApp* (Cloud API)\n"
+        "• `send WhatsApp to 8801712345678: I'm on my way`\n"
+        "• `show my unread WhatsApp messages`\n"
+        "• `get last 10 messages from John on WhatsApp`\n\n"
+
+        "─────────────────────────\n"
+        "*📧 Email*\n"
+        "• `check my unread emails`\n"
+        "• `send email to boss@work.com: I'll be late`\n"
+        "• `reply to the last email from John`\n\n"
+
+        "─────────────────────────\n"
+        "*🎤 Voice*\n"
+        "Send a voice note → it's transcribed and executed as a command.\n"
+        "• Example: record \"take a screenshot and send it\"\n\n"
+
+        "─────────────────────────\n"
+        "*🤖 Autonomous Mode*\n"
+        "Give a complex multi-step goal — GhostDesk plans and executes it:\n"
+        "• `autonomously: find all Excel files, make PDFs, zip them`\n"
+        "• `autonomously: research top 5 Python web frameworks and save a summary note`\n\n"
+
+        "─────────────────────────\n"
+        "*👤 Ghost Mode (Personality Clone)*\n"
+        "GhostDesk learns your writing style and replies AS YOU:\n"
+        "• `how would I reply to: hey are you free tonight?`\n"
+        "• `auto-reply to Boss for 2 hours` — enables Ghost Mode\n"
+        "• `stop ghost mode for Boss`\n"
+        "• `show ghost replies today`\n\n"
+
+        "─────────────────────────\n"
+        "*👁️ Screen Watcher*\n"
+        "Watches your screen every 30s and alerts you:\n"
+        "• `start screen watcher` / `stop screen watcher`\n"
+        "• Alerts: errors, crashes, downloads, calls, battery, media paused\n\n"
+
+        "─────────────────────────\n"
+        "*📎 File Upload*\n"
+        "Drag & drop any file into this chat → ask what to do:\n"
+        "• `read it` / `convert to PDF` / `analyse this Excel`\n\n"
+
+        "─────────────────────────\n"
+        "*⚙️ Config*\n"
+        "• Edit settings: run `ghostdesk-config` in CMD\n"
+        "• Re-run full setup: run `ghostdesk-setup` in CMD\n"
+        + inactive_block
     )
-    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+
+    # Split into chunks (Telegram 4096 char limit)
+    chunk = 4000
+    for i in range(0, len(help_text), chunk):
+        await update.message.reply_text(help_text[i:i+chunk], parse_mode=ParseMode.MARKDOWN)
 
 
 async def cmd_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):

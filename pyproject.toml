@@ -71,6 +71,7 @@ autorespond = [
 [project.scripts]
 ghostdesk        = "ghostpc.main:main"
 ghostdesk-setup  = "ghostpc.wizard:main"
+ghostdesk-config = "ghostpc.config_editor:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
