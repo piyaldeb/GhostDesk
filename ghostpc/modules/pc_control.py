@@ -423,3 +423,142 @@ def set_volume(level: int) -> dict:
             return {"success": False, "error": f"pycaw not installed and nircmd not found: {e}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ─── Wake-on-LAN ──────────────────────────────────────────────────────────────
+
+def wake_on_lan(mac_address: str, broadcast: str = "255.255.255.255", port: int = 9) -> dict:
+    """
+    Send a Wake-on-LAN magic packet to wake another PC on the network.
+    mac_address: target PC's MAC address, e.g. 'AA:BB:CC:DD:EE:FF'
+    broadcast: broadcast address (default works for most home networks)
+
+    NOTE: To wake THIS PC when it's off, you need an always-on device
+    (router, Raspberry Pi, VPS) to send the packet. GhostDesk must be running
+    to receive commands. See 'remote access guide' for setup options.
+    """
+    import socket
+    import re
+
+    mac = re.sub(r'[^0-9a-fA-F]', '', mac_address)
+    if len(mac) != 12:
+        return {"success": False, "error": f"Invalid MAC address: '{mac_address}'. Use format AA:BB:CC:DD:EE:FF"}
+
+    try:
+        magic = bytes.fromhex('FF' * 6 + mac * 16)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            sock.sendto(magic, (broadcast, port))
+        return {
+            "success": True,
+            "text": f"✅ Wake-on-LAN packet sent to {mac_address}. The target PC should power on in ~10 seconds if WoL is enabled in its BIOS."
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def enable_remote_desktop() -> dict:
+    """
+    Enable Windows Remote Desktop (RDP) so you can connect via any RDP client.
+    Also shows your local IP for connection. Windows only.
+    """
+    if not IS_WINDOWS:
+        return {"success": False, "error": "Remote Desktop is Windows-only. On Mac/Linux use SSH or VNC."}
+
+    try:
+        import socket
+
+        # Enable RDP via registry
+        subprocess.run(
+            ['reg', 'add', r'HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server',
+             '/v', 'fDenyTSConnections', '/t', 'REG_DWORD', '/d', '0', '/f'],
+            capture_output=True, check=True,
+        )
+        # Enable firewall rule
+        subprocess.run(
+            ['netsh', 'advfirewall', 'firewall', 'set', 'rule',
+             'group="remote desktop"', 'new', 'enable=Yes'],
+            capture_output=True,
+        )
+
+        local_ip = socket.gethostbyname(socket.gethostname())
+        return {
+            "success": True,
+            "text": (
+                f"✅ Remote Desktop (RDP) enabled!\n\n"
+                f"*Your local IP:* `{local_ip}`\n"
+                f"*Port:* 3389\n\n"
+                f"*To connect:*\n"
+                f"• Windows: Start → Remote Desktop Connection → enter `{local_ip}`\n"
+                f"• Mac: Microsoft Remote Desktop app → `{local_ip}`\n"
+                f"• Phone: Microsoft RD app → `{local_ip}`\n\n"
+                f"⚠️ For access from outside your home network:\n"
+                f"  1. Set up port forwarding: router → port 3389 → `{local_ip}`\n"
+                f"  2. Or use Cloudflare Tunnel / Tailscale (more secure, recommended)"
+            ),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def disable_remote_desktop() -> dict:
+    """Disable Windows Remote Desktop (RDP)."""
+    if not IS_WINDOWS:
+        return {"success": False, "error": "Windows only."}
+    try:
+        subprocess.run(
+            ['reg', 'add', r'HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server',
+             '/v', 'fDenyTSConnections', '/t', 'REG_DWORD', '/d', '1', '/f'],
+            capture_output=True, check=True,
+        )
+        return {"success": True, "text": "✅ Remote Desktop disabled."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def get_remote_access_guide() -> dict:
+    """Return a guide on how to remotely wake and access this PC."""
+    import socket
+    try:
+        local_ip = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        local_ip = "your-local-ip"
+
+    return {
+        "success": True,
+        "text": (
+            "🖥️ *Remote PC Access Guide*\n\n"
+
+            "─── Option 1: Already ON (easiest) ───\n"
+            "GhostDesk is running → you already have full control via Telegram.\n"
+            "For visual desktop:\n"
+            "• Say `enable remote desktop` → connect from phone/laptop\n\n"
+
+            "─── Option 2: PC is SLEEPING ───\n"
+            "Wake-on-LAN works from another device on the same network:\n"
+            "• Find your MAC: say `show my network info`\n"
+            "• Say `wake PC at AA:BB:CC:DD:EE:FF` from another GhostDesk device\n\n"
+
+            "─── Option 3: PC is OFF / WoL from internet ───\n"
+            "Requires an always-on relay. Easiest options:\n\n"
+            "*A) Tailscale (free, recommended):*\n"
+            "  1. `install Tailscale` on this PC + your phone\n"
+            "  2. They get private IPs that work from anywhere\n"
+            "  3. Enable WoL in BIOS (look for 'Wake on LAN' in Power settings)\n"
+            "  4. From phone: send magic packet to this PC's Tailscale IP\n\n"
+            "*B) Always-on VPS relay:*\n"
+            "  1. Get a $3/month VPS (DigitalOcean, Vultr)\n"
+            "  2. Run GhostDesk there with your Telegram bot token\n"
+            "  3. VPS receives 'wake PC' → sends WoL packet via VPN to your home\n\n"
+            "*C) Router WoL (if supported):*\n"
+            "  Check your router's web interface for 'Wake on LAN' feature.\n\n"
+
+            "─── Enable WoL in BIOS ───\n"
+            "1. Restart PC → press Del/F2 during boot to enter BIOS\n"
+            "2. Find: Power Management → Wake on LAN → Enable\n"
+            "3. Save and exit\n\n"
+
+            f"*Your current local IP:* `{local_ip}`\n"
+            "Say `enable remote desktop` to turn on RDP access now."
+        ),
+    }
