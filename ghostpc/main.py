@@ -371,6 +371,68 @@ async def cmd_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(result["text"], parse_mode=ParseMode.MARKDOWN)
 
 
+async def cmd_reinstall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Force reinstall all dependencies + playwright, then restart."""
+    if not _is_authorized(update):
+        return
+    await update.message.reply_text(
+        "🔧 Force reinstalling GhostDesk...\n"
+        "This reinstalls all dependencies even if already up to date.\n"
+        "_(Takes ~2 min — bot will restart when done)_",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+    def _do_reinstall():
+        import subprocess, sys, threading, time, os
+        from pathlib import Path
+        pkg_dir = Path(__file__).parent.parent
+
+        lines = []
+        # git pull
+        pull = subprocess.run(["git", "pull"], cwd=str(pkg_dir),
+                              capture_output=True, text=True, timeout=60)
+        lines.append(f"📥 git pull: {pull.stdout.strip() or pull.stderr.strip()[:100]}")
+
+        # pip install -e . --force-reinstall
+        pip = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-e", ".", "--force-reinstall", "-q"],
+            cwd=str(pkg_dir), capture_output=True, text=True, timeout=300,
+        )
+        if pip.returncode == 0:
+            lines.append("✅ pip install --force-reinstall complete.")
+        else:
+            lines.append(f"⚠️ pip: {pip.stderr.strip()[:200]}")
+
+        # playwright install chromium
+        pw = subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            capture_output=True, text=True, timeout=300,
+        )
+        lines.append("✅ Playwright browsers ready." if pw.returncode == 0
+                     else f"⚠️ playwright: {pw.stderr.strip()[:100]}")
+
+        lines.append("🔄 Restarting in 3 seconds...")
+        return "\n".join(lines)
+
+    result_text = await asyncio.get_event_loop().run_in_executor(None, _do_reinstall)
+    await update.message.reply_text(result_text, parse_mode=ParseMode.MARKDOWN)
+
+    # Restart after sending the reply
+    def _restart():
+        import time, os, subprocess, sys
+        from pathlib import Path
+        time.sleep(3)
+        pkg_dir = Path(__file__).parent.parent
+        cmd = [sys.executable, "-m", "ghostpc.main"]
+        flags = 0
+        if os.name == "nt":
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        subprocess.Popen(cmd, cwd=str(pkg_dir), creationflags=flags)
+        os._exit(0)
+
+    threading.Thread(target=_restart, daemon=False).start()
+
+
 # ─── Message Handler ─────────────────────────────────────────────────────────
 
 # Pending confirmations: { chat_id: { "action": ..., "plan": ... } }
@@ -953,6 +1015,7 @@ def main():
     app.add_handler(CommandHandler("schedules", cmd_schedules))
     app.add_handler(CommandHandler("workflows", cmd_workflows))
     app.add_handler(CommandHandler("update", cmd_update))
+    app.add_handler(CommandHandler("reinstall", cmd_reinstall))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
