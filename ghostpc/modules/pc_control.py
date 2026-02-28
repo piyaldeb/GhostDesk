@@ -300,6 +300,102 @@ def move_mouse(x: int, y: int) -> dict:
         return {"success": False, "error": str(e)}
 
 
+# ─── App Installer ───────────────────────────────────────────────────────────
+
+def search_app(name: str) -> dict:
+    """
+    Search for an app in winget (Windows) or brew (Mac) and return info
+    before installing — so the user can confirm what will be installed.
+    """
+    try:
+        if IS_WINDOWS:
+            result = subprocess.run(
+                ["winget", "search", "--name", name, "--exact", "--accept-source-agreements"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                # Fallback: non-exact search, first 5 results
+                result = subprocess.run(
+                    ["winget", "search", name, "--accept-source-agreements"],
+                    capture_output=True, text=True, timeout=30,
+                )
+            lines = [l for l in result.stdout.splitlines() if l.strip() and "---" not in l]
+            if lines:
+                return {"success": True, "text": "\n".join(lines[:8]), "raw": result.stdout}
+            return {"success": False, "error": f"No results for '{name}' in winget."}
+        elif IS_MAC:
+            result = subprocess.run(
+                ["brew", "search", name],
+                capture_output=True, text=True, timeout=30,
+            )
+            return {"success": True, "text": result.stdout[:600]}
+        else:
+            result = subprocess.run(
+                ["apt-cache", "search", name],
+                capture_output=True, text=True, timeout=30,
+            )
+            return {"success": True, "text": result.stdout[:600]}
+    except FileNotFoundError as e:
+        return {"success": False, "error": f"Package manager not found: {e}. On Windows install winget (built into Windows 11)."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def install_app(name: str, confirm: bool = False) -> dict:
+    """
+    Install an application silently using the system package manager.
+    On Windows uses winget; on Mac uses brew; on Linux uses apt.
+    Always set confirm=True in the action plan so the user approves first.
+    """
+    if not confirm:
+        # Return info about what would be installed so user can confirm
+        search = search_app(name)
+        info = search.get("text", "")
+        return {
+            "success": False,
+            "confirm": True,
+            "text": (
+                f"📦 About to install: *{name}*\n\n"
+                + (f"Found in package manager:\n```\n{info[:400]}\n```\n\n" if info else "")
+                + "Reply ✅ Yes to confirm installation."
+            ),
+        }
+
+    try:
+        if IS_WINDOWS:
+            result = subprocess.run(
+                ["winget", "install", "--name", name,
+                 "--silent", "--accept-package-agreements", "--accept-source-agreements"],
+                capture_output=True, text=True, timeout=300,
+            )
+        elif IS_MAC:
+            result = subprocess.run(
+                ["brew", "install", name],
+                capture_output=True, text=True, timeout=300,
+            )
+        else:
+            result = subprocess.run(
+                ["apt-get", "install", "-y", name],
+                capture_output=True, text=True, timeout=300,
+            )
+
+        if result.returncode == 0:
+            return {"success": True, "text": f"✅ {name} installed successfully."}
+        # winget exit code 0x8A150011 = already installed
+        if "already installed" in result.stdout.lower() or result.returncode == -1978335215:
+            return {"success": True, "text": f"✅ {name} is already installed."}
+        return {
+            "success": False,
+            "error": f"Install failed (code {result.returncode}):\n{result.stdout[-300:]}",
+        }
+    except FileNotFoundError as e:
+        return {"success": False, "error": f"Package manager not found: {e}"}
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "Installation timed out (5 min). It may still be running in the background."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # ─── Volume / Brightness ─────────────────────────────────────────────────────
 
 def set_volume(level: int) -> dict:

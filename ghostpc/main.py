@@ -112,10 +112,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     features_on  = []
     features_off = []
 
-    if config.WHATSAPP_ENABLED and config.WHATSAPP_ACCESS_TOKEN:
-        features_on.append("WhatsApp")
+    if config.WHATSAPP_ENABLED:
+        features_on.append("WhatsApp (personal)")
     else:
-        features_off.append("WhatsApp — add WHATSAPP_ACCESS_TOKEN + WHATSAPP_PHONE_ID in .env (run `ghostdesk-config`)")
+        features_off.append("WhatsApp — set WHATSAPP_ENABLED=true in .env, requires Node.js (nodejs.org)")
 
     if config.EMAIL_ADDRESS:
         features_on.append("Email")
@@ -166,6 +166,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `take a screenshot`\n"
         "• `what apps are open`\n"
         "• `open Notepad` / `close Chrome`\n"
+        "• `install VLC` / `install 7-Zip`\n"
         "• `type hello world`\n"
         "• `press Ctrl+S`\n"
         "• `lock the PC` / `restart in 5 minutes`\n\n"
@@ -201,8 +202,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/schedules` → then `delete schedule 2`\n\n"
 
         "─────────────────────────\n"
-        "*📱 WhatsApp* (Cloud API)\n"
+        "*📱 WhatsApp* (personal — message anyone)\n"
         "• `send WhatsApp to 8801712345678: I'm on my way`\n"
+        "• `send WhatsApp to John: running late`\n"
         "• `show my unread WhatsApp messages`\n"
         "• `get last 10 messages from John on WhatsApp`\n\n"
 
@@ -640,70 +642,98 @@ def start_scheduler(bot_app: Application):
         logger.warning(f"Scheduler failed to start: {e}")
 
 
-# ─── WhatsApp Bridge ─────────────────────────────────────────────────────────
+# ─── WhatsApp Bridge (whatsapp-web.js personal account) ──────────────────────
 
-# ─── WhatsApp Cloud API Webhook (aiohttp on port 3100) ────────────────────────
+async def _start_whatsapp_bridge(bot_app: "Application"):
+    """Auto-install npm deps and start the whatsapp-web.js bridge as a subprocess."""
+    import shutil
+    import subprocess
 
-async def _start_whatsapp_webhook(bot_app: "Application"):
-    """
-    Tiny aiohttp server on port 3100 for the WhatsApp Cloud API webhook.
-    Meta POSTs incoming messages here.
+    bridge_dir = Path(__file__).parent / "modules"
+    bridge_js  = bridge_dir / "whatsapp_bridge.js"
 
-    For Meta to reach this server you need a public URL (ngrok, Cloudflare Tunnel,
-    or cloud deployment). Set it in Meta App → WhatsApp → Configuration → Webhook URL:
-      https://your-public-url/webhook/whatsapp
-    Verify token must match WHATSAPP_VERIFY_TOKEN in your .env.
-    """
+    if not bridge_js.exists():
+        logger.warning("whatsapp_bridge.js not found — WhatsApp bridge disabled.")
+        return
+
+    node = shutil.which("node")
+    npm  = shutil.which("npm")
+
+    if not node or not npm:
+        logger.warning("Node.js not installed — WhatsApp bridge disabled. Install from nodejs.org")
+        return
+
+    # Auto-install npm deps if node_modules is missing
+    if not (bridge_dir / "node_modules").exists():
+        logger.info("Installing WhatsApp bridge npm dependencies (first run)...")
+        result = subprocess.run(
+            [npm, "install"],
+            cwd=str(bridge_dir),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            logger.warning(f"npm install failed: {result.stderr[:200]}")
+            return
+        logger.info("npm install complete.")
+
+    proc = subprocess.Popen(
+        [node, "whatsapp_bridge.js"],
+        cwd=str(bridge_dir),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    logger.info(f"WhatsApp bridge started (PID {proc.pid}). Scan QR code in terminal when prompted.")
+
+    def _log_bridge(p):
+        for line in p.stdout:
+            line = line.rstrip()
+            if line:
+                logger.info(f"[WhatsApp] {line}")
+
+    threading.Thread(target=_log_bridge, args=(proc,), daemon=True).start()
+    await _start_whatsapp_incoming_listener(bot_app)
+
+
+async def _start_whatsapp_incoming_listener(bot_app: "Application"):
+    """Listen for incoming WhatsApp messages from the bridge on port 3100."""
     try:
         from aiohttp import web
         from modules.auto_responder import process_incoming
-        from modules.whatsapp_cloud import parse_incoming_webhook
 
-        async def whatsapp_verify(request):
-            """Meta webhook verification (GET)."""
-            mode      = request.rel_url.query.get("hub.mode", "")
-            token     = request.rel_url.query.get("hub.verify_token", "")
-            challenge = request.rel_url.query.get("hub.challenge", "")
-            if mode == "subscribe" and token == config.WHATSAPP_VERIFY_TOKEN:
-                logger.info("WhatsApp webhook verified by Meta.")
-                return web.Response(text=challenge)
-            return web.Response(status=403, text="Forbidden")
-
-        async def whatsapp_incoming(request):
-            """Meta webhook incoming messages (POST)."""
+        async def handle_incoming(request):
             try:
-                payload = await request.json()
-                messages = parse_incoming_webhook(payload)
-                for msg in messages:
-                    contact = msg["contact"]
-                    body    = msg["message"]
-                    if contact and body and config.AUTO_RESPOND_WHATSAPP:
-                        asyncio.create_task(
-                            process_incoming(
-                                contact=contact,
-                                contact_name=contact,
-                                incoming_message=body,
-                                source="whatsapp",
-                                bot=bot_app,
-                                chat_id=int(config.TELEGRAM_CHAT_ID),
-                            )
+                data         = await request.json()
+                contact      = data.get("contact", "")
+                contact_name = data.get("contact_name", contact)
+                body         = data.get("body", "")
+                if contact and body and config.AUTO_RESPOND_WHATSAPP:
+                    asyncio.create_task(
+                        process_incoming(
+                            contact=contact,
+                            contact_name=contact_name,
+                            incoming_message=body,
+                            source="whatsapp",
+                            bot=bot_app,
+                            chat_id=int(config.TELEGRAM_CHAT_ID),
                         )
+                    )
             except Exception as e:
-                logger.error(f"WhatsApp webhook handler error: {e}")
+                logger.error(f"WhatsApp incoming handler error: {e}")
             return web.Response(text="ok")
 
         web_app = web.Application()
-        web_app.router.add_get("/webhook/whatsapp",  whatsapp_verify)
-        web_app.router.add_post("/webhook/whatsapp", whatsapp_incoming)
+        web_app.router.add_post("/incoming/whatsapp", handle_incoming)
         runner = web.AppRunner(web_app)
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", 3100)
         await site.start()
-        logger.info("WhatsApp Cloud API webhook listening on port 3100")
+        logger.info("WhatsApp incoming listener on port 3100")
     except ImportError:
-        logger.warning("aiohttp not installed — WhatsApp webhook disabled.")
+        logger.warning("aiohttp not installed — WhatsApp incoming listener disabled.")
     except Exception as e:
-        logger.warning(f"WhatsApp webhook failed to start: {e}")
+        logger.warning(f"WhatsApp incoming listener failed: {e}")
 
 
 # ─── Email Poller ────────────────────────────────────────────────────────────
@@ -840,9 +870,9 @@ def main():
 
     async def post_init(application: "Application"):
         """Runs inside the bot's event loop after startup."""
-        # WhatsApp Cloud API webhook (starts whenever WhatsApp is enabled)
-        if config.WHATSAPP_ENABLED and config.WHATSAPP_ACCESS_TOKEN:
-            await _start_whatsapp_webhook(application)
+        # WhatsApp personal bridge (whatsapp-web.js)
+        if config.WHATSAPP_ENABLED:
+            await _start_whatsapp_bridge(application)
 
         # Email polling via APScheduler
         if config.AUTO_RESPOND_ENABLED and config.AUTO_RESPOND_EMAIL and config.EMAIL_ADDRESS:

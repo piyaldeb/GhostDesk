@@ -75,7 +75,7 @@ def _get_module_function(module: str, function: str) -> Optional[Callable]:
         elif module == "browser":
             from modules import browser as mod
         elif module == "whatsapp":
-            from modules import whatsapp_cloud as mod
+            from modules import whatsapp as mod
         elif module == "email":
             from modules import email_handler as mod
         elif module == "media":
