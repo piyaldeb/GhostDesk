@@ -640,6 +640,11 @@ def validate_config():
         missing.append("TELEGRAM_BOT_TOKEN")
     if not config.TELEGRAM_CHAT_ID:
         missing.append("TELEGRAM_CHAT_ID")
+    elif not config.TELEGRAM_CHAT_ID.lstrip("-").isdigit():
+        print(f"\n❌ TELEGRAM_CHAT_ID must be a numeric user ID, not '{config.TELEGRAM_CHAT_ID}'.")
+        print("   Open Telegram, message @userinfobot, send /start — it replies with your numeric ID.")
+        print("   Then update TELEGRAM_CHAT_ID in ~/.ghostdesk/.env\n")
+        sys.exit(1)
     if config.AI_PROVIDER == "claude" and not config.CLAUDE_API_KEY:
         missing.append("CLAUDE_API_KEY")
     if config.AI_PROVIDER == "openai" and not config.OPENAI_API_KEY:
