@@ -145,7 +145,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     inactive_block = ""
     if features_off:
         inactive_block = "\n\n⚙️ *Not configured yet:*\n" + "\n".join(f"  • {f}" for f in features_off)
-        inactive_block += "\n\nRun `ghostdesk-config` in CMD to edit .env, or `ghostdesk-setup` to re-run the wizard."
+        inactive_block += "\n\nUse /config to edit settings right here in chat, or /setup for a guided wizard."
 
     help_text = (
         "👻 *GhostPC — Full Guide*\n\n"
@@ -159,6 +159,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/memory — Your last 10 commands\n"
         "/notes — Saved notes & reminders\n"
         "/schedules — Active scheduled tasks\n"
+        "/config — View & edit all settings\n"
+        "/setup — Setup wizard & feature suggestions\n"
         "/help — This guide\n\n"
 
         "─────────────────────────\n"
@@ -355,6 +357,69 @@ async def cmd_workflows(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text, keyboard = format_workflow_list()
     await update.message.reply_text(
         text, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard
+    )
+
+
+async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show current GhostDesk configuration with setup hints."""
+    if not _is_authorized(update):
+        return
+    from modules.config_manager import get_config_status
+    result = await asyncio.get_event_loop().run_in_executor(None, get_config_status)
+    text = result.get("text", "")
+    # Add quick-action buttons for common setup flows
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📧 Email setup", callback_data="cfg_guide:email"),
+            InlineKeyboardButton("📱 WhatsApp setup", callback_data="cfg_guide:whatsapp"),
+        ],
+        [
+            InlineKeyboardButton("👁️ Screen Watcher", callback_data="cfg_guide:screen_watcher"),
+            InlineKeyboardButton("🤖 Auto-Response", callback_data="cfg_guide:auto_respond"),
+        ],
+        [
+            InlineKeyboardButton("💡 Suggest what to set up", callback_data="cfg_suggest"),
+        ],
+    ])
+    chunk = 4000
+    for i in range(0, len(text), chunk):
+        if i == 0:
+            await update.message.reply_text(
+                text[i:i+chunk],
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard,
+            )
+        else:
+            await update.message.reply_text(text[i:i+chunk], parse_mode=ParseMode.MARKDOWN)
+
+
+async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Suggest unconfigured features and how to set them up."""
+    if not _is_authorized(update):
+        return
+    from modules.config_manager import suggest_setup
+    result = await asyncio.get_event_loop().run_in_executor(None, suggest_setup)
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📧 Email", callback_data="cfg_guide:email"),
+            InlineKeyboardButton("📱 WhatsApp", callback_data="cfg_guide:whatsapp"),
+        ],
+        [
+            InlineKeyboardButton("🤖 Claude AI", callback_data="cfg_guide:claude"),
+            InlineKeyboardButton("🤖 OpenAI", callback_data="cfg_guide:openai"),
+        ],
+        [
+            InlineKeyboardButton("👁️ Screen Watcher", callback_data="cfg_guide:screen_watcher"),
+            InlineKeyboardButton("🎤 Voice", callback_data="cfg_guide:voice"),
+        ],
+        [
+            InlineKeyboardButton("⚙️ Full config", callback_data="cfg_status"),
+        ],
+    ])
+    await update.message.reply_text(
+        result.get("text", ""),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=keyboard,
     )
 
 
@@ -589,6 +654,56 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Auto-response approval buttons ──────────────────────────────────────
     if query.data in ("ar_send", "ar_edit", "ar_skip"):
         await handle_approval_callback(query, context)
+        return
+
+    # ── Config guide buttons ──────────────────────────────────────────────────
+    if query.data.startswith("cfg_guide:"):
+        service = query.data.split(":", 1)[1]
+        from modules.config_manager import get_setup_guide
+        result = get_setup_guide(service)
+        await query.edit_message_text(
+            result.get("text", ""),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back to config", callback_data="cfg_status")]
+            ]),
+        )
+        return
+
+    if query.data == "cfg_suggest":
+        from modules.config_manager import suggest_setup
+        result = suggest_setup()
+        await query.edit_message_text(
+            result.get("text", ""),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back to config", callback_data="cfg_status")]
+            ]),
+        )
+        return
+
+    if query.data == "cfg_status":
+        from modules.config_manager import get_config_status
+        result = get_config_status()
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📧 Email setup", callback_data="cfg_guide:email"),
+                InlineKeyboardButton("📱 WhatsApp setup", callback_data="cfg_guide:whatsapp"),
+            ],
+            [
+                InlineKeyboardButton("👁️ Screen Watcher", callback_data="cfg_guide:screen_watcher"),
+                InlineKeyboardButton("🤖 Auto-Response", callback_data="cfg_guide:auto_respond"),
+            ],
+            [
+                InlineKeyboardButton("💡 Suggest setup", callback_data="cfg_suggest"),
+            ],
+        ])
+        text = result.get("text", "")[:4000]
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=keyboard,
+        )
         return
 
     # ── Screen watcher action buttons ────────────────────────────────────────
@@ -1029,6 +1144,8 @@ def main():
     app.add_handler(CommandHandler("notes", cmd_notes))
     app.add_handler(CommandHandler("schedules", cmd_schedules))
     app.add_handler(CommandHandler("workflows", cmd_workflows))
+    app.add_handler(CommandHandler("config", cmd_config))
+    app.add_handler(CommandHandler("setup", cmd_setup))
     app.add_handler(CommandHandler("update", cmd_update))
     app.add_handler(CommandHandler("reinstall", cmd_reinstall))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

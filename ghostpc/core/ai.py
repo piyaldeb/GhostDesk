@@ -33,6 +33,7 @@ Available modules:
 - personality: build_contact_profile(contact_name, source), generate_reply_as_user(incoming_message, contact, source), enable_ghost_mode(contact, duration_minutes, source, notify), disable_ghost_mode(contact), get_ghost_sessions(), draft_reply(incoming_message, contact, source), refine_reply(instruction), get_ghost_replies(days)
 - telegram: send_message(text), send_file(file_path, caption)
 - workflow: create_workflow_from_description(description), list_workflows_text(), delete_workflow_by_id(id), run_workflow_now(id)
+- config_manager: get_config_status(), set_config(key, value), get_setup_guide(service), suggest_setup(), get_env_path_info()
 Rules:
 1. Always return ONLY valid JSON with "thought" and "actions" array — no markdown, no explanation outside JSON.
 2. Each action object: { "module": "...", "function": "...", "args": {...} }
@@ -59,6 +60,11 @@ Rules:
 20. "install X" / "download X" / "get X app" / "set up X" (any software/app) → ALWAYS use pc_control.install_app(name=X). NEVER use open_app or powershell shell commands for installing software. If unsure of the exact package name, call search_app(name=X) first, then install_app(name=exact_id).
 21. "enable autostart" / "start with windows" / "run on boot" / "auto start" → pc_control.enable_autostart().
 22. "disable autostart" / "don't start with windows" / "stop running on boot" → pc_control.disable_autostart().
+26. "show config" / "show settings" / "what's configured" / "my config" / "current settings" → config_manager.get_config_status().
+27. "set X to Y" / "change X to Y" / "update X to Y" (where X looks like a config key or feature name) → config_manager.set_config(key=X, value=Y). Config keys are uppercase like EMAIL_ADDRESS, SCREEN_WATCHER_ENABLED, etc.
+28. "how do I set up X" / "how to connect X" / "setup guide for X" / "help with X setup" → config_manager.get_setup_guide(service=X).
+29. "what should I set up" / "suggest setup" / "what's missing" / "what features are unconfigured" → config_manager.suggest_setup().
+30. "where is the config file" / "where is .env" / "config file path" → config_manager.get_env_path_info().
 
 Response format (STRICT — no other text):
 {
