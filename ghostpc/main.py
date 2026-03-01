@@ -610,6 +610,9 @@ async def cmd_reinstall(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Pending confirmations: { chat_id: { "action": ..., "plan": ... } }
 _pending_confirmations: dict = {}
 
+# Currently running agents per chat — used by the "stop" command
+_active_agents: dict = {}
+
 # Auto-response approval state (keyed by Telegram message_id of the card)
 from modules.auto_responder import (
     _pending_approvals,
@@ -687,6 +690,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with open(path, "rb") as f:
             await context.bot.send_document(chat_id=chat_id, document=f, caption=caption)
 
+    # ── Stop thinking ────────────────────────────────────────────────────────
+    if user_text.lower().strip() in ("stop", "stop thinking", "stop it", "cancel"):
+        ag = _active_agents.get(chat_id)
+        if ag:
+            ag.cancel_thinking()
+            await send("🛑 Stopped.")
+        else:
+            await send("Nothing is currently running.")
+        return
+
     agent = GhostAgent(send, send_file)
 
     # Pre-check for destructive keywords before parsing
@@ -699,7 +712,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             plan = ai.parse_action_plan(user_text, build_memory_context(5))
         except Exception:
-            await agent.handle(user_text)
+            _active_agents[chat_id] = agent
+            try:
+                await agent.handle(user_text)
+            finally:
+                _active_agents.pop(chat_id, None)
             return
 
         if _needs_confirmation(plan):
@@ -734,7 +751,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await run_goal(user_text, send, send_file)
         return
 
-    await agent.handle(user_text)
+    _active_agents[chat_id] = agent
+    try:
+        await agent.handle(user_text)
+    finally:
+        _active_agents.pop(chat_id, None)
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

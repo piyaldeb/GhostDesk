@@ -227,9 +227,108 @@ class GhostAgent:
         self.ai = get_ai()
         self.build_memory_context = build_memory_context
         self.log_command = log_command
+        self._thinking_cancelled = False
+
+    def cancel_thinking(self):
+        """Signal the agent to stop its current self-healing loop."""
+        self._thinking_cancelled = True
+
+    async def _self_heal(self, failed_action: dict, error: str, results: list, original_request: str) -> Optional[dict]:
+        """
+        Autonomously try to recover from a failed action.
+        Asks the AI for an alternative plan, executes it, retries up to 2 times.
+        Returns the recovered result dict, or None if recovery failed/was cancelled.
+        """
+        MAX_ATTEMPTS = 2
+        await self.send("🤔 Thinking...\n_Send_ *stop* _to cancel_")
+
+        for attempt in range(MAX_ATTEMPTS):
+            if self._thinking_cancelled:
+                await self.send("🛑 Thinking stopped.")
+                return None
+
+            if attempt > 0:
+                await self.send(f"🤔 Retrying... (attempt {attempt + 1}/{MAX_ATTEMPTS})")
+
+            try:
+                recovery_plan = self.ai.get_recovery_plan(failed_action, error, original_request)
+            except Exception as e:
+                logger.error(f"Recovery plan generation failed: {e}")
+                return None
+
+            thought = recovery_plan.get("thought", "")
+            actions = recovery_plan.get("actions", [])
+
+            if thought:
+                await self.send(f"💭 {thought}")
+
+            if not actions:
+                # AI says no recovery is possible
+                return None
+
+            recovery_results = []
+            recovery_success = True
+            last_error = ""
+
+            for r_action in actions:
+                if self._thinking_cancelled:
+                    await self.send("🛑 Thinking stopped.")
+                    return None
+
+                r_module = r_action.get("module", "")
+                r_function = r_action.get("function", "")
+                r_args = r_action.get("args", {})
+                r_resolved = _resolve_args(r_args, results + recovery_results)
+
+                if r_module == "telegram":
+                    result = await self._handle_telegram_action(r_function, r_resolved)
+                    recovery_results.append(result)
+                    continue
+
+                func = _get_module_function(r_module, r_function)
+                if func is None:
+                    last_error = f"Module/function not available: {r_module}.{r_function}"
+                    recovery_success = False
+                    break
+
+                try:
+                    if asyncio.iscoroutinefunction(func):
+                        result = await func(**r_resolved)
+                    else:
+                        result = await asyncio.get_event_loop().run_in_executor(
+                            None, lambda f=func, a=r_resolved: f(**a)
+                        )
+                    recovery_results.append(result)
+
+                    if isinstance(result, dict) and result.get("success") is False:
+                        last_error = result.get("error") or result.get("text") or "Unknown"
+                        recovery_success = False
+                        break
+
+                    if isinstance(result, dict) and result.get("file_path"):
+                        fp = result["file_path"]
+                        caption = result.get("caption", f"Result from {r_module}.{r_function}")
+                        await self.send_file(fp, caption)
+
+                except Exception as e:
+                    last_error = str(e)
+                    recovery_success = False
+                    break
+
+            if recovery_success and recovery_results:
+                last = recovery_results[-1]
+                text = (last.get("text") or last.get("content") or "✅ Recovered successfully") if isinstance(last, dict) else str(last)
+                await self.send(f"✅ Recovered!\n{text}")
+                return last
+
+            error = last_error  # update error for next attempt
+
+        await self.send("❌ Could not recover automatically.")
+        return None
 
     async def handle(self, user_input: str) -> None:
         """Process a user message end-to-end."""
+        self._thinking_cancelled = False  # reset at start of each request
         await self.send("⚙️ Processing...")
 
         # Build context
@@ -335,9 +434,12 @@ class GhostAgent:
                                 await self.send(text)
                             break  # stop chain; user must reply to confirm
                         err = result.get("error") or result.get("text") or "Unknown error"
-                        recovery = self.ai.suggest_recovery(action, err)
-                        await self.send(f"⚠️ Action {i+1} failed: {err}\n\n💡 Suggestion: {recovery}")
-                        overall_success = False
+                        await self.send(f"⚠️ Action {i+1} failed: {err}")
+                        healed = await self._self_heal(action, err, results[:], user_input)
+                        if healed is not None:
+                            results.append(healed)
+                        else:
+                            overall_success = False
                     elif result.get("file_path"):
                         # Auto-send file result if module produced one
                         fp = result["file_path"]
@@ -355,10 +457,14 @@ class GhostAgent:
 
             except Exception as e:
                 logger.error(f"Action {i} error: {e}", exc_info=True)
-                recovery = self.ai.suggest_recovery(action, str(e))
-                await self.send(f"❌ Action {i+1} ({module}.{function}) crashed:\n{e}\n\n💡 {recovery}")
-                results.append({"success": False, "error": str(e)})
-                overall_success = False
+                err = repr(e) if not str(e) else str(e)
+                await self.send(f"❌ Action {i+1} ({module}.{function}) crashed:\n{err}")
+                healed = await self._self_heal(action, err, results[:], user_input)
+                if healed is not None:
+                    results.append(healed)
+                else:
+                    results.append({"success": False, "error": err})
+                    overall_success = False
 
         # Final result summary
         final_result = self._summarize_results(results)

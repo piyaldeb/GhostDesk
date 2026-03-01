@@ -348,6 +348,30 @@ Reply in one or two sentences only. Be practical."""
         except Exception:
             return "Unable to get recovery suggestion."
 
+    def get_recovery_plan(self, failed_action: dict, error: str, original_request: str = "") -> dict:
+        """Ask AI to generate a full recovery action plan for a failed action."""
+        prompt = f"""An action failed. Think about why and generate a new action plan using a different approach.
+
+Original user request: {original_request}
+Failed action: {json.dumps(failed_action)}
+Error: {error}
+
+Choose a different module or method to still satisfy the request.
+If no recovery is possible (e.g. missing credentials, unsupported feature), return empty actions array.
+Return ONLY valid JSON in the standard format — no markdown, no extra text."""
+
+        try:
+            raw = self.call(SYSTEM_PROMPT, prompt, max_tokens=1024)
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1]
+                if raw.endswith("```"):
+                    raw = raw.rsplit("```", 1)[0]
+            return json.loads(raw.strip())
+        except Exception as e:
+            logger.error(f"Recovery plan error: {e}")
+            return {"thought": f"Could not generate recovery plan: {e}", "actions": []}
+
     def answer_question(self, question: str, context: str = "") -> str:
         """Answer a direct question (no action plan needed)."""
         system = "You are GhostPC, a helpful AI assistant running on the user's Windows PC. Answer concisely."
