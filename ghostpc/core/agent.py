@@ -58,20 +58,43 @@ def _get_pc_context() -> str:
         return f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
 
+def _result_to_str(res: Any) -> str:
+    """
+    Convert an action result to a human-readable string for use as a string argument.
+    Most module functions return dicts with a 'text' key — use that when available.
+    """
+    if res is None:
+        return ""
+    if isinstance(res, str):
+        return res
+    if isinstance(res, dict):
+        # Prefer 'text', then 'content', then 'body', then str(dict)
+        for key in ("text", "content", "body", "result", "output", "data"):
+            if key in res and isinstance(res[key], str):
+                return res[key]
+        return str(res)
+    return str(res)
+
+
 def _resolve_arg(value: Any, results: list) -> Any:
     """
     Replace {result_of_action_N} placeholders in arg values with actual results.
     Handles strings, dicts, and lists recursively.
+
+    When the ENTIRE arg value is a single placeholder (e.g. body="{result_of_action_0}"),
+    we return the raw result so the callee gets a dict if it wants one.
+    When the placeholder is EMBEDDED in a larger string, we stringify the result using
+    _result_to_str() so dict results produce readable text rather than repr().
     """
     if isinstance(value, str):
         for i, res in enumerate(results):
             placeholder = f"{{result_of_action_{i}}}"
             if placeholder in value:
-                # If the entire value is the placeholder, return the raw result
                 if value.strip() == placeholder:
+                    # Whole value is the placeholder — return raw result (could be dict)
                     return res
-                # Otherwise string-substitute
-                value = value.replace(placeholder, str(res) if res is not None else "")
+                # Embedded placeholder — stringify intelligently
+                value = value.replace(placeholder, _result_to_str(res))
         return value
     elif isinstance(value, dict):
         return {k: _resolve_arg(v, results) for k, v in value.items()}
@@ -81,7 +104,18 @@ def _resolve_arg(value: Any, results: list) -> Any:
 
 
 def _resolve_args(args: dict, results: list) -> dict:
-    return {k: _resolve_arg(v, results) for k, v in args.items()}
+    """Resolve all placeholders in an args dict, coercing dict results to str for string params."""
+    resolved = {}
+    for k, v in args.items():
+        resolved_val = _resolve_arg(v, results)
+        # If the arg value is still a dict but the original was a plain placeholder string,
+        # coerce it to text for typical string-typed parameters (body, message, text, content, subject)
+        if isinstance(resolved_val, dict) and isinstance(v, str) and v.strip().startswith("{result_of_action_"):
+            _STRING_PARAMS = {"body", "message", "text", "content", "subject", "caption", "description"}
+            if k in _STRING_PARAMS:
+                resolved_val = _result_to_str(resolved_val)
+        resolved[k] = resolved_val
+    return resolved
 
 
 # ─── Module Dispatch Table ────────────────────────────────────────────────────
