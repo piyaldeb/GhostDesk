@@ -5,10 +5,11 @@ import os
 import sys
 from pathlib import Path
 
-# ─── User data directory (~/.ghostdesk/) ─────────────────────────────────────
-# All runtime data (db, logs, temp) lives here — safe for pip-installed packages
-USER_DATA_DIR = Path.home() / ".ghostdesk"
-USER_DATA_DIR.mkdir(exist_ok=True)
+# ─── User data directory ──────────────────────────────────────────────────────
+# Override with GHOSTDESK_HOME env var for custom/production deployments.
+# Default: ~/.ghostdesk/
+USER_DATA_DIR = Path(os.environ.get("GHOSTDESK_HOME", Path.home() / ".ghostdesk"))
+USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Load .env from user data dir, then fallback to cwd
 for _env_path in [USER_DATA_DIR / ".env", Path.cwd() / ".env"]:

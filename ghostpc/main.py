@@ -16,9 +16,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 # Load .env before importing config
+# Respects GHOSTDESK_HOME env var (same logic as config.py)
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).parent / ".env")
+    _data_dir = Path(os.environ.get("GHOSTDESK_HOME", Path.home() / ".ghostdesk"))
+    load_dotenv(_data_dir / ".env")
 except ImportError:
     pass  # python-dotenv not installed, fallback to os.environ
 

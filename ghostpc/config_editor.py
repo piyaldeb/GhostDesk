@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ENV_PATH = Path.home() / ".ghostdesk" / ".env"
+ENV_PATH = Path(os.environ.get("GHOSTDESK_HOME", Path.home() / ".ghostdesk")) / ".env"
 
 
 def main():
