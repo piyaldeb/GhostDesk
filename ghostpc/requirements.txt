@@ -47,3 +47,8 @@ apscheduler
 
 # ─── Optional: Windows notifications ─────────────────────────────────────────
 # win10toast      # Windows toast notifications (install separately if needed)
+
+# ─── Optional: VPS Relay Server (Feature D — deploy on VPS, not needed on PC) ─
+# fastapi         # Relay server web framework
+# uvicorn         # Relay server ASGI runner
+# (install on VPS with: pip install fastapi uvicorn)

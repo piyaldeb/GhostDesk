@@ -161,6 +161,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/schedules — Active scheduled tasks\n"
         "/config — View & edit all settings\n"
         "/setup — Setup wizard & feature suggestions\n"
+        "/audit — Action audit log (security)\n"
+        "/pin YOUR_PIN — Unlock CRITICAL actions (restart/shutdown)\n"
         "/help — This guide\n\n"
 
         "─────────────────────────\n"
@@ -420,6 +422,13 @@ async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🧠 Personality Clone", callback_data="cfg_guide:personality_clone"),
         ],
         [
+            InlineKeyboardButton("🛡️ Security / PIN", callback_data="cfg_guide:security"),
+            InlineKeyboardButton("🤖 Local LLM (Ollama)", callback_data="cfg_guide:ollama"),
+        ],
+        [
+            InlineKeyboardButton("📡 Offline Relay", callback_data="cfg_guide:relay"),
+        ],
+        [
             InlineKeyboardButton("⚙️ Full config", callback_data="cfg_status"),
         ],
     ])
@@ -441,6 +450,58 @@ async def cmd_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
         None, lambda: update_ghostdesk(restart=True)
     )
     await update.message.reply_text(result["text"], parse_mode=ParseMode.MARKDOWN)
+
+
+async def cmd_pin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Verify security PIN to unlock CRITICAL actions (restart, shutdown)."""
+    if not _is_authorized(update):
+        return
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: `/pin YOUR_PIN`\n\n"
+            "Verifies your security PIN to unlock *CRITICAL* actions "
+            "(restart, shutdown) for 5 minutes.\n"
+            "Set your PIN via `SECURITY_PIN` in config.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+    entered = " ".join(context.args)
+    from core.security import verify_pin
+    if verify_pin(entered):
+        await update.message.reply_text(
+            "🔓 *PIN verified.* CRITICAL actions (restart, shutdown) are unlocked "
+            "for the next 5 minutes.\n\nNow resend your command.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    else:
+        await update.message.reply_text("❌ Wrong PIN. Try again with `/pin YOUR_PIN`.")
+
+
+async def cmd_audit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show recent action audit log."""
+    if not _is_authorized(update):
+        return
+    from core.security import get_audit_log, SAFE, MODERATE, DANGEROUS, CRITICAL, _TIER_NAMES
+    entries = get_audit_log(25)
+    if not entries:
+        await update.message.reply_text(
+            "📋 Audit log is empty.\n"
+            "Enable logging with `SECURITY_LOG_ENABLED=true` in config."
+        )
+        return
+    lines = ["📋 *Recent Actions (last 25):*\n"]
+    for e in entries:
+        ts = e["timestamp"][:16].replace("T", " ")
+        tier = e.get("tier", "")
+        outcome = e.get("outcome", "")
+        if outcome.startswith("blocked"):
+            icon = "🔴"
+        elif tier in ("DANGEROUS", "CRITICAL"):
+            icon = "🟡"
+        else:
+            icon = "🟢"
+        lines.append(f"{icon} `{ts}` [{tier}] {e['module']}.{e['function']}")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
 async def cmd_reinstall(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1155,6 +1216,8 @@ def main():
     app.add_handler(CommandHandler("setup", cmd_setup))
     app.add_handler(CommandHandler("update", cmd_update))
     app.add_handler(CommandHandler("reinstall", cmd_reinstall))
+    app.add_handler(CommandHandler("pin", cmd_pin))
+    app.add_handler(CommandHandler("audit", cmd_audit))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
@@ -1263,6 +1326,53 @@ def main():
                     )
             except Exception as e:
                 logger.warning(f"Personality setup check failed: {e}")
+
+        # ── Offline Queue / VPS Relay ────────────────────────────────────────
+        if config.RELAY_URL and config.RELAY_SECRET:
+            try:
+                from core.offline_queue import start_heartbeat, fetch_queued_messages, dequeue_messages
+                start_heartbeat(config.RELAY_HEARTBEAT_INTERVAL)
+
+                # Fetch messages queued while PC was offline
+                queued = await asyncio.get_event_loop().run_in_executor(
+                    None, fetch_queued_messages
+                )
+                if queued:
+                    count = len(queued)
+                    ids = [m["id"] for m in queued]
+                    await application.bot.send_message(
+                        chat_id=int(config.TELEGRAM_CHAT_ID),
+                        text=(
+                            f"📬 *{count} command(s) were queued while your PC was offline.*\n"
+                            f"Processing now..."
+                        ),
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+
+                    async def _relay_send(text: str):
+                        await application.bot.send_message(
+                            chat_id=int(config.TELEGRAM_CHAT_ID), text=text
+                        )
+
+                    async def _relay_send_file(fp: str, caption: str = ""):
+                        with open(fp, "rb") as f:
+                            await application.bot.send_document(
+                                chat_id=int(config.TELEGRAM_CHAT_ID),
+                                document=f, caption=caption,
+                            )
+
+                    from core.agent import GhostAgent
+                    q_agent = GhostAgent(_relay_send, _relay_send_file)
+                    for msg in queued:
+                        if msg.get("text"):
+                            await q_agent.handle(msg["text"])
+
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: dequeue_messages(ids)
+                    )
+                    logger.info(f"Processed {count} queued relay message(s).")
+            except Exception as _relay_err:
+                logger.warning(f"Relay startup check failed: {_relay_err}")
 
         # ── Missed schedule check ────────────────────────────────────────────
         try:

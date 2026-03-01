@@ -1,15 +1,50 @@
 """
 GhostPC AI Wrapper
-Unified interface for Claude (Anthropic) and OpenAI.
+Unified interface for Claude (Anthropic), OpenAI, and local Ollama.
 Returns structured JSON action plans for the agent to execute.
+
+Tiered routing (when OLLAMA_ENABLED=true):
+  Simple tasks (screenshot, type, open app, system stats…) → local Ollama model
+  Complex tasks (email, documents, personality, chaining…)  → cloud AI provider
 """
 
 import json
 import logging
 import os
+import re
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+# ─── Simple-task patterns (routed to local Ollama) ────────────────────────────
+# A task is "simple" if it matches at least one of these patterns AND produces
+# a single, low-risk action.  Everything else goes to cloud.
+_SIMPLE_PATTERNS = [
+    r"\b(take\s+a?\s*)?screenshot\b",
+    r"\bopen\s+\w+",
+    r"\bclose\s+\w+",
+    r"\btype\s+.+",
+    r"\bpress\s+(key\s+)?\w+",
+    r"\bclick\s+",
+    r"\b(system\s+)?stats?\b",
+    r"\bdisk\s+(info|usage|space)\b",
+    r"\bbattery\b",
+    r"\bnetwork\s+info\b",
+    r"\bmy\s+ip\b",
+    r"\bip\s+address\b",
+    r"\b(get\s+)?clipboard\b",
+    r"\blist\s+(windows|processes|apps|open\s+apps)\b",
+    r"\bwhat\s+(apps|windows)\s+are\s+(open|running)\b",
+    r"\bping\s+\w+",
+    r"\bopen\s+.*(folder|directory)\b",
+    r"\block\s+(the\s+)?pc\b",
+    r"\bcheck\s+battery\b",
+    r"\bsystem\s+info\b",
+    r"\bpc\s+specs?\b",
+    r"\bhardware\s+info\b",
+    r"\bmove\s+mouse\b",
+    r"\bscroll\s+(up|down)\b",
+]
 
 
 # ─── System Prompt ────────────────────────────────────────────────────────────
@@ -107,6 +142,10 @@ CRITICAL — DRAFT APPROVAL RULE: personality.draft_reply and personality.refine
 67. "open folder X" / "open directory X" → pc_control.open_folder(path=X).
 68. "system info" / "hardware info" / "pc specs" / "computer info" → pc_control.get_system_info().
 69. For ANY task not covered by specific modules, use pc_control.run_command() with appropriate PowerShell/CMD commands. This is the universal fallback for full PC control.
+70. "show audit log" / "show action log" / "what actions were taken" → tell user to use /audit command.
+71. "lock pin" / "revoke pin" / "deactivate pin" → tell user to restart or wait 5 minutes; PIN sessions auto-expire.
+72. pc_control.restart_pc and pc_control.shutdown_pc are CRITICAL actions — the user must verify with /pin first if SECURITY_PIN is set. Do NOT attempt to bypass or skip this — simply include the action in the plan and let the security gate handle it.
+73. "check relay" / "relay status" / "is relay online" → use pc_control.run_command to GET /status from RELAY_URL, or tell the user to check their VPS directly.
 
 Response format (STRICT — no other text):
 {
@@ -297,12 +336,126 @@ Reply in one or two sentences only. Be practical."""
         return self.call(system, user_msg, max_tokens=1024)
 
 
-# Singleton
+# ─── Ollama Client (local LLM) ────────────────────────────────────────────────
+
+class OllamaClient:
+    """
+    Thin wrapper around the Ollama REST API (http://localhost:11434).
+    Uses the /api/generate endpoint for a single prompt→response call.
+    """
+
+    def __init__(self, url: str, model: str):
+        self.url   = url.rstrip("/")
+        self.model = model
+
+    def call(self, system: str, user_message: str, max_tokens: int = 2048) -> str:
+        import requests
+        payload = {
+            "model":  self.model,
+            "system": system,
+            "prompt": user_message,
+            "stream": False,
+            "options": {"num_predict": max_tokens},
+        }
+        r = requests.post(
+            f"{self.url}/api/generate",
+            json=payload,
+            timeout=60,
+        )
+        r.raise_for_status()
+        return r.json().get("response", "")
+
+    def is_available(self) -> bool:
+        """Check whether Ollama is running and the model is pulled."""
+        try:
+            import requests
+            r = requests.get(f"{self.url}/api/tags", timeout=3)
+            if r.status_code != 200:
+                return False
+            # Make sure the configured model exists locally
+            models = [m.get("name", "") for m in r.json().get("models", [])]
+            return any(self.model in m for m in models)
+        except Exception:
+            return False
+
+
+# ─── Tiered AI Client ─────────────────────────────────────────────────────────
+
+class TieredAIClient(AIClient):
+    """
+    Routes simple commands to a local Ollama model (fast, free, private)
+    and complex tasks to the configured cloud AI provider.
+
+    Simple = keyword-matched single-action commands (screenshot, open app, etc.)
+    Complex = everything else (email, documents, personality, multi-step chains)
+    """
+
+    def __init__(self):
+        super().__init__()
+        from config import OLLAMA_URL, OLLAMA_MODEL
+        self._ollama = OllamaClient(OLLAMA_URL, OLLAMA_MODEL)
+        self._ollama_ok: Optional[bool] = None  # cached availability
+
+    def _is_simple(self, text: str) -> bool:
+        text_lower = text.lower().strip()
+        return any(re.search(p, text_lower) for p in _SIMPLE_PATTERNS)
+
+    def _ollama_available(self) -> bool:
+        from config import OLLAMA_ENABLED
+        if not OLLAMA_ENABLED:
+            return False
+        if self._ollama_ok is None:
+            self._ollama_ok = self._ollama.is_available()
+            if not self._ollama_ok:
+                logger.warning(
+                    f"Ollama not available at {self._ollama.url} "
+                    f"(model: {self._ollama.model}). Falling back to cloud."
+                )
+        return self._ollama_ok
+
+    def parse_action_plan(
+        self,
+        user_input: str,
+        memory_context: str = "",
+        pc_context: str = "",
+    ) -> dict:
+        if self._ollama_available() and self._is_simple(user_input):
+            try:
+                full_msg = (
+                    f"PC Context:\n{pc_context}\n\n"
+                    f"User command: {user_input}"
+                ).strip()
+                raw = self._ollama.call(SYSTEM_PROMPT, full_msg)
+                raw = raw.strip()
+                if raw.startswith("```"):
+                    raw = raw.split("\n", 1)[-1]
+                    if raw.endswith("```"):
+                        raw = raw.rsplit("```", 1)[0]
+                plan = json.loads(raw.strip())
+                logger.info(f"[Ollama] handled: {user_input[:50]}")
+                return plan
+            except json.JSONDecodeError:
+                logger.warning("Ollama returned non-JSON — falling back to cloud")
+            except Exception as exc:
+                logger.warning(f"Ollama error ({exc}) — falling back to cloud")
+                self._ollama_ok = None  # reset cache so we re-check next time
+
+        # Cloud fallback
+        return super().parse_action_plan(user_input, memory_context, pc_context)
+
+
+# ─── Singleton ────────────────────────────────────────────────────────────────
+
 _ai_instance: Optional[AIClient] = None
 
 
 def get_ai() -> AIClient:
     global _ai_instance
     if _ai_instance is None:
-        _ai_instance = AIClient()
+        from config import OLLAMA_ENABLED
+        if OLLAMA_ENABLED:
+            _ai_instance = TieredAIClient()
+            logger.info("AI: Tiered routing enabled (Ollama + cloud)")
+        else:
+            _ai_instance = AIClient()
     return _ai_instance

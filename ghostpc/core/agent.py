@@ -244,6 +244,29 @@ class GhostAgent:
                 overall_success = False
                 continue
 
+            # ── Security permission gate ─────────────────────────────────────
+            try:
+                from core.security import check_permission
+                perm = check_permission(module, function, resolved_args)
+            except Exception as _sec_err:
+                logger.warning(f"Security check failed ({_sec_err}), defaulting to allow")
+                perm = "allowed"
+
+            if perm == "needs_pin":
+                await self.send(
+                    f"🔐 *PIN Required*\n\n"
+                    f"Action `{module}.{function}` is classified as *CRITICAL* "
+                    f"and requires PIN verification.\n\n"
+                    f"Reply `/pin YOUR_PIN` to unlock for 5 minutes, "
+                    f"then resend your command.\n\n"
+                    f"_(Set SECURITY\\_PIN in config to choose your PIN. "
+                    f"Leave blank to disable PIN protection.)_"
+                )
+                results.append({"success": False, "needs_pin": True, "stop_chain": True,
+                                 "text": f"CRITICAL action blocked: {module}.{function} requires PIN."})
+                overall_success = False
+                break
+
             # Execute (handle both sync and async functions)
             try:
                 if asyncio.iscoroutinefunction(func):

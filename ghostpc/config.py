@@ -99,6 +99,30 @@ AUTONOMOUS_MODE_ENABLED = os.getenv("AUTONOMOUS_MODE_ENABLED", "true").lower() =
 # Path to service account JSON, or leave blank to use OAuth2 (~/.ghostdesk/google_token.json)
 GOOGLE_SHEETS_CREDS_PATH = os.getenv("GOOGLE_SHEETS_CREDS_PATH", "")
 
+# ─── Security Layer ───────────────────────────────────────────────────────────
+# Set SECURITY_PIN to a numeric PIN to require it for CRITICAL actions
+# (restart_pc, shutdown_pc).  Leave blank to disable PIN protection.
+SECURITY_PIN         = os.getenv("SECURITY_PIN", "")
+SECURITY_LOG_ENABLED = os.getenv("SECURITY_LOG_ENABLED", "true").lower() == "true"
+
+# ─── Local LLM (Ollama) ───────────────────────────────────────────────────────
+# Install Ollama from https://ollama.ai, pull a model (e.g. ollama pull llama3.2:3b)
+# then set OLLAMA_ENABLED=true.  Simple commands will be routed locally; complex
+# tasks (documents, email, personality) continue to use your cloud AI provider.
+OLLAMA_ENABLED = os.getenv("OLLAMA_ENABLED", "false").lower() == "true"
+OLLAMA_URL     = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+
+# ─── Offline Queue / VPS Relay ────────────────────────────────────────────────
+# Deploy ghostpc/relay/relay_server.py on a VPS or Raspberry Pi, then set:
+#   RELAY_URL=https://your.vps.ip:8765
+#   RELAY_SECRET=yoursharedsecret   (must match relay server's RELAY_SECRET)
+# The PC sends heartbeats to the relay every RELAY_HEARTBEAT_INTERVAL seconds.
+# On startup it fetches any messages queued while the PC was offline.
+RELAY_URL                = os.getenv("RELAY_URL", "")
+RELAY_SECRET             = os.getenv("RELAY_SECRET", "")
+RELAY_HEARTBEAT_INTERVAL = int(os.getenv("RELAY_HEARTBEAT_INTERVAL", "60"))
+
 # ─── Platform flags ───────────────────────────────────────────────────────────
 IS_WINDOWS = sys.platform == "win32"
 IS_MAC     = sys.platform == "darwin"

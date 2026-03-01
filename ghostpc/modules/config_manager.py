@@ -240,6 +240,67 @@ _SETUP_GUIDES = {
         "  `check gmail inbox`\n"
         "  `find contact John in my contacts`"
     ),
+
+    "security": (
+        "🛡️ *Security Layer Setup*\n\n"
+        "GhostDesk has a built-in permission system:\n"
+        "  🟢 SAFE — read-only ops (screenshot, stats, read files)\n"
+        "  🟡 MODERATE — writes & sends (open app, send email, install)\n"
+        "  🔴 DANGEROUS — risky ops (delete, kill process, run command)\n"
+        "  🔐 CRITICAL — destructive system ops (restart, shutdown)\n\n"
+        "*To protect CRITICAL actions with a PIN:*\n"
+        "1️⃣ Open `~/.ghostdesk/.env`\n"
+        "2️⃣ Add: `SECURITY_PIN=yourpin`\n"
+        "3️⃣ Restart GhostDesk\n\n"
+        "*Usage:*\n"
+        "  When you say `restart pc` or `shutdown`, GhostDesk will ask for PIN.\n"
+        "  Reply: `/pin yourpin` → unlocks CRITICAL actions for 5 minutes.\n\n"
+        "*Audit log:*\n"
+        "  Use `/audit` to see the last 25 actions with their permission tier.\n"
+        "  Set `SECURITY_LOG_ENABLED=false` to disable logging."
+    ),
+
+    "ollama": (
+        "🤖 *Local LLM Setup (Ollama)*\n\n"
+        "Run simple commands locally on your PC — free, private, no API cost.\n"
+        "Complex tasks (email, documents, personality) still use cloud AI.\n\n"
+        "*Step 1 — Install Ollama:*\n"
+        "  Download from: https://ollama.ai\n"
+        "  Or: `winget install Ollama.Ollama`\n\n"
+        "*Step 2 — Pull a model:*\n"
+        "  `ollama pull llama3.2:3b`   ← fast, low RAM (2GB)\n"
+        "  `ollama pull llama3.2:8b`   ← better, needs 5GB RAM\n"
+        "  `ollama pull mistral:7b`    ← alternative\n\n"
+        "*Step 3 — Enable in GhostDesk:*\n"
+        "  `set OLLAMA_ENABLED to true`\n"
+        "  `set OLLAMA_MODEL to llama3.2:3b`   (or your chosen model)\n\n"
+        "*Routing:*\n"
+        "  screenshot, open app, type, click, stats → local model\n"
+        "  email, documents, personality, chaining → cloud AI\n\n"
+        "*Test it:* Just say `take a screenshot` — check logs for `[Ollama] handled`"
+    ),
+
+    "relay": (
+        "📡 *Offline Queue / VPS Relay Setup*\n\n"
+        "Queue commands when your PC is off. On startup, GhostDesk fetches "
+        "and runs all queued commands, notifying you of results.\n\n"
+        "*Step 1 — Deploy relay on VPS or Raspberry Pi:*\n"
+        "  `pip install fastapi uvicorn requests`\n"
+        "  `export RELAY_SECRET=yoursharedsecret`\n"
+        "  `python ghostpc/relay/relay_server.py`\n"
+        "  (runs on port 8765 by default)\n\n"
+        "*Step 2 — Configure your PC:*\n"
+        "  `set RELAY_URL to https://your.vps.ip:8765`\n"
+        "  `set RELAY_SECRET to yoursharedsecret`\n\n"
+        "*Step 3 — Queue messages while offline:*\n"
+        "  POST to `https://your.vps.ip:8765/queue_message` with:\n"
+        "  `{\"text\": \"take a screenshot\", \"sender\": \"me\"}`\n"
+        "  Header: `X-GhostDesk-Secret: yoursharedsecret`\n\n"
+        "*On PC startup:*\n"
+        "  GhostDesk fetches the queue and shows:\n"
+        "  '📬 2 commands were queued while your PC was offline. Processing now...'\n\n"
+        "*Check relay status:* GET `https://your.vps.ip:8765/status`"
+    ),
 }
 
 
