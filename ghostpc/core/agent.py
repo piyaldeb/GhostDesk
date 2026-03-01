@@ -15,6 +15,29 @@ from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
+# Pending WhatsApp export sessions awaiting a name (group chats)
+# { agent_id: {"path": str, "senders": list} }
+_pending_wa_exports: dict = {}
+
+
+def _looks_like_whatsapp_export(file_path: str) -> bool:
+    """
+    Peek at the first few lines of a text file to check if it's a WhatsApp export.
+    WhatsApp exports always start with a timestamp pattern.
+    """
+    import re
+    try:
+        with open(file_path, encoding="utf-8", errors="replace") as f:
+            head = [f.readline() for _ in range(5)]
+        pattern = re.compile(
+            r"^\[?\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}"
+            r"(?:,\s*|\s+)\d{1,2}:\d{2}",
+        )
+        matches = sum(1 for line in head if pattern.match(line.strip()))
+        return matches >= 1
+    except Exception:
+        return False
+
 
 def _get_pc_context() -> str:
     """Build a short PC context string for the AI."""
@@ -282,5 +305,29 @@ class GhostAgent:
 
     async def handle_file_upload(self, file_path: str, filename: str) -> None:
         """Handle a file uploaded by the user to the Telegram bot."""
+        # ── Auto-detect WhatsApp chat export ──────────────────────────────
+        if filename.lower().endswith(".txt") and _looks_like_whatsapp_export(file_path):
+            await self.send(
+                "📱 This looks like a *WhatsApp chat export*!\n"
+                "Analysing to learn your writing style..."
+            )
+            from modules.personality import learn_from_whatsapp_export
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, learn_from_whatsapp_export, file_path, ""
+            )
+            if result.get("needs_name"):
+                # Store path for follow-up
+                _pending_wa_exports[id(self)] = {"path": file_path, "senders": result.get("senders", [])}
+            await self.send(result.get("text", str(result)))
+            return
+
         msg = f"📁 You uploaded: {filename}\nSaved to: {file_path}\n\nWhat would you like to do with this file?"
         await self.send(msg)
+
+    async def handle_whatsapp_name_reply(self, your_name: str, file_path: str) -> None:
+        """Called when user provides their name for a group WhatsApp export."""
+        from modules.personality import learn_from_whatsapp_export
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, learn_from_whatsapp_export, file_path, your_name
+        )
+        await self.send(result.get("text", str(result)))

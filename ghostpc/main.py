@@ -417,6 +417,9 @@ async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("📊 Google Sheets", callback_data="cfg_guide:google_sheets"),
         ],
         [
+            InlineKeyboardButton("🧠 Personality Clone", callback_data="cfg_guide:personality_clone"),
+        ],
+        [
             InlineKeyboardButton("⚙️ Full config", callback_data="cfg_status"),
         ],
     ])

@@ -566,6 +566,9 @@ def get_personality_status() -> dict:
         return {
             "success": True,
             "total": total,
+            "email_count": email_count,
+            "screen_count": screen_count,
+            "wa_count": wa_count,
             "text": (
                 f"🧠 *Personality Clone Data*\n\n"
                 f"Total training samples: *{total}* ({quality})\n"
@@ -618,6 +621,171 @@ def setup_personality() -> dict:
     else:
         lines.append("✅ Enough data for accurate personality cloning.")
 
+    # WhatsApp export
+    wa_count = status.get("wa_count", 0)
+    if wa_count > 0:
+        lines.append(f"📱 WhatsApp: ✅ {wa_count} messages imported")
+    else:
+        lines.append("📱 WhatsApp: ❌ no data yet")
+        lines.append(
+            "   → Export a chat from WhatsApp (any chat → ⋮ → More → Export Chat → without media)\n"
+            "     then send the .txt file to this bot — it will learn your writing style from it."
+        )
+
     lines.append("\nSay `build my style profile` to see the AI's style analysis of you.")
 
     return {"success": True, "text": "\n".join(lines)}
+
+
+# ─── WhatsApp Chat Export Learning ───────────────────────────────────────────
+
+def learn_from_whatsapp_export(file_path: str, your_name: str = "") -> dict:
+    """
+    Parse a WhatsApp exported chat .txt file and store the user's sent messages
+    as personality training data.
+
+    WhatsApp export formats:
+      [DD/MM/YYYY, HH:MM:SS] Name: Message          (most Android/iOS locales)
+      [M/D/YY, H:MM AM/PM] Name: Message             (US locale)
+      DD/MM/YYYY, HH:MM - Name: Message               (older Android)
+
+    Steps:
+      1. User opens any WhatsApp chat → ⋮ → More → Export Chat → Without media
+      2. WhatsApp creates a .txt file (and optional .zip)
+      3. User sends that file to GhostDesk via Telegram
+      4. GhostDesk calls this function with the saved path
+    """
+    import re
+    from pathlib import Path
+
+    path = Path(file_path)
+    if not path.exists():
+        return {"success": False, "error": f"File not found: {file_path}"}
+
+    try:
+        # Try UTF-8 first, fall back to latin-1 for older exports
+        try:
+            raw_text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            raw_text = path.read_text(encoding="latin-1")
+
+        # ── Detect all unique sender names in this export ──────────────────
+        # Patterns cover bracketed timestamps (iOS/newer Android) and dash-separated (older Android)
+        line_pattern = re.compile(
+            r"^\[?(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})"   # date
+            r"(?:,\s*|\s+)"                                   # separator
+            r"(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)\]?"   # time
+            r"(?:\s*-\s*|\s+)"                                # dash or space
+            r"([^:]+):\s*"                                    # sender name
+            r"(.+)$",                                          # message body
+            re.IGNORECASE,
+        )
+
+        senders: dict[str, int] = {}
+        parsed_lines: list[tuple[str, str, str]] = []  # (date_str, sender, message)
+
+        for line in raw_text.splitlines():
+            m = line_pattern.match(line.strip())
+            if m:
+                date_part, time_part, sender, message = m.groups()
+                sender = sender.strip()
+                message = message.strip()
+                date_str = f"{date_part} {time_part}"
+                # Skip system messages
+                if message.lower() in ("null", "<media omitted>", "image omitted",
+                                       "video omitted", "audio omitted",
+                                       "sticker omitted", "gif omitted",
+                                       "document omitted"):
+                    continue
+                senders[sender] = senders.get(sender, 0) + 1
+                parsed_lines.append((date_str, sender, message))
+
+        if not parsed_lines:
+            return {
+                "success": False,
+                "error": (
+                    "Could not parse any messages from this file.\n"
+                    "Make sure it's a WhatsApp 'Export Chat' .txt file."
+                ),
+            }
+
+        # ── Resolve which sender is "you" ──────────────────────────────────
+        if not your_name:
+            # Most likely candidate: the sender with most messages OR the one
+            # that's NOT the most frequent (in a 1-on-1 chat with the other person
+            # having more messages). Use the sorted list and let the user pick if ambiguous.
+            sorted_senders = sorted(senders.items(), key=lambda x: -x[1])
+            if len(sorted_senders) == 1:
+                your_name = sorted_senders[0][0]
+            elif len(sorted_senders) == 2:
+                # In a 2-person chat, pick the one with FEWER messages
+                # (usually you send less than you receive, or vice versa)
+                # Better heuristic: pick the sender that has sent at least 1 message
+                # but let the user override with your_name param
+                your_name = sorted_senders[1][0]  # second most frequent = you (guess)
+            else:
+                # Group chat — can't auto-detect; list participants
+                names_list = ", ".join(f"`{n}`" for n, _ in sorted_senders[:8])
+                return {
+                    "success": False,
+                    "needs_name": True,
+                    "senders": [n for n, _ in sorted_senders],
+                    "text": (
+                        f"📱 Found a *group chat* export with {len(sorted_senders)} participants.\n"
+                        f"Participants: {names_list}\n\n"
+                        f"Tell me which name is yours:\n"
+                        f"  `learn from whatsapp export your name is John`"
+                    ),
+                }
+
+        # ── Filter to user's messages and store ───────────────────────────
+        your_messages = [
+            (ds, msg) for ds, sender, msg in parsed_lines
+            if sender.lower() == your_name.lower()
+        ]
+
+        if not your_messages:
+            names_list = ", ".join(f"`{n}`" for n in senders.keys())
+            return {
+                "success": False,
+                "needs_name": True,
+                "senders": list(senders.keys()),
+                "text": (
+                    f"❓ Couldn't find messages from `{your_name}` in this export.\n"
+                    f"Senders found: {names_list}\n\n"
+                    f"Try: `learn from whatsapp export your name is [your exact name]`"
+                ),
+            }
+
+        from core.memory import get_connection
+        stored = 0
+        with get_connection() as conn:
+            for date_str, msg in your_messages:
+                # Skip very short messages (single emoji, "ok", "yes", etc.)
+                if len(msg) < 8:
+                    continue
+                conn.execute(
+                    "INSERT OR IGNORE INTO conversations "
+                    "(contact, direction, message, source, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    ("_whatsapp_training", "out", msg[:2000], "whatsapp", date_str),
+                )
+                stored += 1
+            conn.commit()
+
+        return {
+            "success": True,
+            "stored": stored,
+            "your_name": your_name,
+            "total_parsed": len(parsed_lines),
+            "text": (
+                f"✅ *WhatsApp learning complete!*\n\n"
+                f"Your name in export: *{your_name}*\n"
+                f"Messages found from you: *{len(your_messages)}*\n"
+                f"Stored as training data: *{stored}*\n\n"
+                f"Say `build my style profile` to see the updated analysis."
+            ),
+        }
+
+    except Exception as e:
+        logger.error(f"learn_from_whatsapp_export: {e}")
+        return {"success": False, "error": str(e)}

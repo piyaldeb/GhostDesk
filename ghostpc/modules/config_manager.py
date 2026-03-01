@@ -186,6 +186,24 @@ _SETUP_GUIDES = {
         "  `write to google sheet ID: [data]`\n"
         "  `update cell B3 in sheet ID to 500`"
     ),
+    "personality_clone": (
+        "🧠 *Personality Clone Setup*\n\n"
+        "Teach GhostDesk to write exactly like you — for auto-replies and ghost mode.\n\n"
+        "*Data sources you can add:*\n\n"
+        "📧 *Email sent history (IMAP):*\n"
+        "  Requires EMAIL_ADDRESS + EMAIL_PASSWORD configured.\n"
+        "  Then say: `learn my writing style from email`\n\n"
+        "📱 *WhatsApp chat export:*\n"
+        "  1️⃣ Open any WhatsApp chat (1-on-1 or group)\n"
+        "  2️⃣ Tap ⋮ → More → Export Chat → *Without media*\n"
+        "  3️⃣ WhatsApp saves a .txt file (or .zip — extract it)\n"
+        "  4️⃣ Send that .txt file directly to this bot\n"
+        "  GhostDesk auto-detects it and learns from your messages.\n\n"
+        "👁️ *Screen Watcher (passive):*\n"
+        "  Set SCREEN_WATCHER_ENABLED=true — GhostDesk learns from your typing over time.\n\n"
+        "*Check your current data:* say `personality status`\n"
+        "*See analysis:* say `build my style profile`"
+    ),
     "voice": (
         "🎤 *Voice Setup*\n\n"
         "Voice transcription uses OpenAI Whisper — needs OPENAI_API_KEY even if you use Claude.\n\n"

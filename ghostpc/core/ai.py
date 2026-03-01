@@ -30,7 +30,7 @@ Available modules:
 - memory: save_note(title, content, tags), get_notes(), search_memory(query), save_api_credential(service_name, credential_type, credential_value)
 - voice: transcribe_voice(audio_path), text_to_speech(text, output_path, voice)
 - screen_watcher: query_screen_history(time_query), start_watcher(interval=30), stop_watcher(), watcher_status()
-- personality: build_contact_profile(contact_name, source), generate_reply_as_user(incoming_message, contact, source), enable_ghost_mode(contact, duration_minutes, source, notify), disable_ghost_mode(contact), get_ghost_sessions(), draft_reply(incoming_message, contact, source), refine_reply(instruction), get_ghost_replies(days), learn_from_sent_emails(), setup_personality(), get_personality_status()
+- personality: build_contact_profile(contact_name, source), generate_reply_as_user(incoming_message, contact, source), enable_ghost_mode(contact, duration_minutes, source, notify), disable_ghost_mode(contact), get_ghost_sessions(), draft_reply(incoming_message, contact, source), refine_reply(instruction), get_ghost_replies(days), learn_from_sent_emails(), learn_from_whatsapp_export(file_path, your_name), setup_personality(), get_personality_status()
 - telegram: send_message(text), send_file(file_path, caption)
 - workflow: create_workflow_from_description(description), list_workflows_text(), delete_workflow_by_id(id), run_workflow_now(id)
 - config_manager: get_config_status(), set_config(key, value), get_setup_guide(service), suggest_setup(), get_env_path_info()
@@ -70,6 +70,7 @@ Rules:
 32. "write to google sheet" / "update google sheet" / "add row to sheet" → document.write_google_sheet().
 33. "update cell in sheet" / "change cell B3" → document.update_google_cell().
 34. "learn my writing style" / "learn from my emails" / "train personality" / "import sent emails" → personality.learn_from_sent_emails().
+34b. "learn from whatsapp" / "import whatsapp" / "whatsapp export" + file_path → personality.learn_from_whatsapp_export(file_path=..., your_name=...). NOTE: WhatsApp .txt files uploaded to the bot are handled automatically — this rule is for when user explicitly names a path.
 35. "personality setup" / "set up personality clone" / "configure ghost mode" → personality.setup_personality().
 36. "how much personality data" / "personality status" / "training data status" → personality.get_personality_status().
 37. "my drive" / "google drive" / "files in drive" / "list drive" → google_services.list_drive_files(). NEVER open a browser.
