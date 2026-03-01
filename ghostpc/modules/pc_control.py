@@ -798,3 +798,592 @@ def get_remote_access_guide() -> dict:
             "Say `enable remote desktop` to turn on RDP access now."
         ),
     }
+
+
+# ─── Shell / Terminal Execution ───────────────────────────────────────────────
+
+def run_command(
+    command: str,
+    shell: str = "powershell",
+    timeout: int = 30,
+    confirm: bool = False,
+) -> dict:
+    """
+    Execute any shell command on the PC and return the output.
+    shell: 'powershell' (default), 'cmd', or 'bash' (WSL/Mac/Linux)
+    timeout: seconds to wait (max 120)
+    confirm: must be True for destructive commands; bot will ask first if False
+    """
+    # Light safety gate: require confirmation for obviously destructive patterns
+    _destructive = ("format ", "rm -rf", "del /f", "rd /s", "diskpart",
+                    "net user", "reg delete", "bcdedit", "cipher /w")
+    needs_confirm = any(d in command.lower() for d in _destructive)
+    if needs_confirm and not confirm:
+        return {
+            "success": False,
+            "confirm": True,
+            "text": (
+                f"⚠️ This command looks destructive:\n```\n{command}\n```\n\n"
+                "Reply `run it` to confirm, or `cancel`."
+            ),
+        }
+
+    timeout = min(int(timeout), 120)
+    try:
+        if IS_WINDOWS:
+            if shell == "cmd":
+                cmd = ["cmd", "/c", command]
+            else:
+                cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
+        elif IS_MAC:
+            cmd = ["bash", "-c", command]
+        else:
+            cmd = ["bash", "-c", command]
+
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+        )
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+        output = stdout or stderr or "(no output)"
+        success = result.returncode == 0
+
+        return {
+            "success": success,
+            "returncode": result.returncode,
+            "output": output,
+            "text": (
+                f"{'✅' if success else '⚠️'} Command finished (exit {result.returncode})\n"
+                f"```\n{output[:3000]}\n```"
+            ),
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": f"Command timed out after {timeout}s."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ─── Process Management ───────────────────────────────────────────────────────
+
+def get_processes(filter_name: str = "", top_n: int = 20) -> dict:
+    """
+    List running processes sorted by CPU usage.
+    filter_name: optionally filter by process name substring.
+    top_n: how many to return (default 20).
+    """
+    try:
+        import psutil
+        procs = []
+        for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_info", "status"]):
+            try:
+                info = p.info
+                if filter_name and filter_name.lower() not in info["name"].lower():
+                    continue
+                mem_mb = round(info["memory_info"].rss / 1024 / 1024, 1) if info["memory_info"] else 0
+                procs.append({
+                    "pid": info["pid"],
+                    "name": info["name"],
+                    "cpu": info["cpu_percent"],
+                    "mem_mb": mem_mb,
+                    "status": info["status"],
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+        procs.sort(key=lambda x: x["cpu"], reverse=True)
+        procs = procs[:top_n]
+
+        lines = [f"⚙️ *Running processes (top {len(procs)} by CPU)*\n"]
+        for p in procs:
+            lines.append(f"• [{p['pid']}] *{p['name']}* — CPU {p['cpu']}% | RAM {p['mem_mb']}MB")
+
+        return {"success": True, "processes": procs, "text": "\n".join(lines)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def kill_process(name_or_pid: str, confirm: bool = False) -> dict:
+    """
+    Kill a process by name or PID.
+    name_or_pid: process name (e.g. 'notepad.exe') or numeric PID.
+    confirm: must be True.
+    """
+    if not confirm:
+        return {
+            "success": False,
+            "confirm": True,
+            "text": f"⚠️ Kill process `{name_or_pid}`?\n\nReply `kill it` to confirm.",
+        }
+    try:
+        import psutil
+        killed = []
+        # Try as PID first
+        try:
+            pid = int(name_or_pid)
+            p = psutil.Process(pid)
+            name = p.name()
+            p.terminate()
+            killed.append(f"{name} (PID {pid})")
+        except ValueError:
+            # It's a name
+            for p in psutil.process_iter(["pid", "name"]):
+                if name_or_pid.lower() in p.info["name"].lower():
+                    try:
+                        p.terminate()
+                        killed.append(f"{p.info['name']} (PID {p.info['pid']})")
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+
+        if not killed:
+            return {"success": False, "error": f"No process found matching '{name_or_pid}'."}
+        return {"success": True, "text": f"✅ Killed: {', '.join(killed)}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ─── Clipboard ────────────────────────────────────────────────────────────────
+
+def get_clipboard() -> dict:
+    """Read the current clipboard content."""
+    try:
+        import pyautogui
+        text = pyautogui.hotkey  # just to ensure pyautogui imported
+        # Use pyperclip if available, otherwise pyautogui/win32
+        try:
+            import pyperclip
+            content = pyperclip.paste()
+        except ImportError:
+            if IS_WINDOWS:
+                import win32clipboard
+                win32clipboard.OpenClipboard()
+                try:
+                    content = win32clipboard.GetClipboardData()
+                finally:
+                    win32clipboard.CloseClipboard()
+            else:
+                result = subprocess.run(["pbpaste"], capture_output=True, text=True)
+                content = result.stdout
+        return {
+            "success": True,
+            "content": content,
+            "text": f"📋 *Clipboard:*\n```\n{content[:2000]}\n```",
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def set_clipboard(text: str) -> dict:
+    """Write text to the clipboard."""
+    try:
+        try:
+            import pyperclip
+            pyperclip.copy(text)
+        except ImportError:
+            if IS_WINDOWS:
+                import win32clipboard
+                win32clipboard.OpenClipboard()
+                try:
+                    win32clipboard.EmptyClipboard()
+                    win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+                finally:
+                    win32clipboard.CloseClipboard()
+            else:
+                subprocess.run(["pbcopy"], input=text.encode(), check=True)
+        return {"success": True, "text": f"📋 Clipboard set to:\n`{text[:200]}`"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ─── Power Management ─────────────────────────────────────────────────────────
+
+def sleep_pc(confirm: bool = False) -> dict:
+    """Put the PC to sleep."""
+    if not confirm:
+        return {"success": False, "confirm": True, "text": "😴 Put PC to sleep? Reply `sleep it`."}
+    try:
+        if IS_WINDOWS:
+            subprocess.run(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"], check=True)
+        elif IS_MAC:
+            subprocess.run(["pmset", "sleepnow"], check=True)
+        else:
+            subprocess.run(["systemctl", "suspend"], check=True)
+        return {"success": True, "text": "😴 PC going to sleep..."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def hibernate_pc(confirm: bool = False) -> dict:
+    """Hibernate the PC."""
+    if not confirm:
+        return {"success": False, "confirm": True, "text": "💤 Hibernate PC? Reply `hibernate it`."}
+    try:
+        if IS_WINDOWS:
+            subprocess.run(["shutdown", "/h"], check=True)
+        elif IS_MAC:
+            subprocess.run(["pmset", "hibernatemode", "25"], check=True)
+            subprocess.run(["pmset", "sleepnow"], check=True)
+        else:
+            subprocess.run(["systemctl", "hibernate"], check=True)
+        return {"success": True, "text": "💤 PC hibernating..."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ─── Disk Information ─────────────────────────────────────────────────────────
+
+def get_disk_info() -> dict:
+    """Return disk/drive usage for all partitions."""
+    try:
+        import psutil
+        partitions = psutil.disk_partitions(all=False)
+        lines = ["💾 *Disk Usage*\n"]
+        disks = []
+        for p in partitions:
+            try:
+                usage = psutil.disk_usage(p.mountpoint)
+                total_gb  = round(usage.total  / 1024**3, 1)
+                used_gb   = round(usage.used   / 1024**3, 1)
+                free_gb   = round(usage.free   / 1024**3, 1)
+                pct       = usage.percent
+                bar_filled = int(pct / 10)
+                bar = "█" * bar_filled + "░" * (10 - bar_filled)
+                lines.append(
+                    f"• *{p.device}* ({p.fstype})\n"
+                    f"  [{bar}] {pct}%\n"
+                    f"  Used: {used_gb}GB / {total_gb}GB | Free: {free_gb}GB"
+                )
+                disks.append({"device": p.device, "total_gb": total_gb, "used_gb": used_gb, "free_gb": free_gb, "percent": pct})
+            except PermissionError:
+                continue
+        return {"success": True, "disks": disks, "text": "\n".join(lines)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ─── Network Information ──────────────────────────────────────────────────────
+
+def get_network_info() -> dict:
+    """Return network adapter info: IPs, MAC addresses, connection status."""
+    try:
+        import psutil, socket
+        addrs = psutil.net_if_addrs()
+        stats = psutil.net_if_stats()
+        io    = psutil.net_io_counters(pernic=False)
+
+        lines = ["🌐 *Network Info*\n"]
+        adapters = []
+        for iface, addr_list in addrs.items():
+            stat = stats.get(iface)
+            if not stat or not stat.isup:
+                continue
+            for addr in addr_list:
+                import psutil as _p
+                if addr.family == 2:   # AF_INET = IPv4
+                    lines.append(f"• *{iface}*: `{addr.address}` (mask: {addr.netmask})")
+                    adapters.append({"iface": iface, "ip": addr.address, "mask": addr.netmask})
+                elif addr.family == 23: # AF_INET6
+                    lines.append(f"  IPv6: `{addr.address[:40]}`")
+                elif addr.family == -1 or addr.family == 18:  # MAC
+                    lines.append(f"  MAC: `{addr.address}`")
+
+        # Public IP via quick DNS trick
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+            lines.append(f"\n📡 Primary outbound IP: `{local_ip}`")
+        except Exception:
+            pass
+
+        sent_mb = round(io.bytes_sent / 1024**2, 1)
+        recv_mb = round(io.bytes_recv / 1024**2, 1)
+        lines.append(f"📊 Session I/O: ↑{sent_mb}MB sent | ↓{recv_mb}MB received")
+
+        return {"success": True, "adapters": adapters, "text": "\n".join(lines)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def ping(host: str, count: int = 4) -> dict:
+    """Ping a host and return latency stats."""
+    try:
+        count = min(int(count), 10)
+        if IS_WINDOWS:
+            result = subprocess.run(
+                ["ping", "-n", str(count), host],
+                capture_output=True, text=True, timeout=30,
+            )
+        else:
+            result = subprocess.run(
+                ["ping", "-c", str(count), host],
+                capture_output=True, text=True, timeout=30,
+            )
+        output = result.stdout.strip()
+        success = result.returncode == 0
+        return {
+            "success": success,
+            "text": f"🏓 *Ping {host}*\n```\n{output[-800:]}\n```",
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": f"Ping timed out — {host} may be unreachable."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ─── Battery ─────────────────────────────────────────────────────────────────
+
+def get_battery_info() -> dict:
+    """Return battery status (for laptops)."""
+    try:
+        import psutil
+        batt = psutil.sensors_battery()
+        if batt is None:
+            return {"success": True, "text": "🔌 No battery detected (desktop PC or not supported)."}
+        pct    = round(batt.percent, 1)
+        status = "🔌 Charging" if batt.power_plugged else "🔋 On battery"
+        secs   = batt.secsleft
+        if secs == psutil.POWER_TIME_UNLIMITED:
+            time_str = "fully charged"
+        elif secs < 0:
+            time_str = "calculating..."
+        else:
+            h, m = divmod(secs // 60, 60)
+            time_str = f"{h}h {m}m remaining"
+        return {
+            "success": True,
+            "percent": pct,
+            "plugged": batt.power_plugged,
+            "text": f"🔋 *Battery*: {pct}% — {status} — {time_str}",
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ─── Windows Services ─────────────────────────────────────────────────────────
+
+def list_services(filter_name: str = "", status_filter: str = "") -> dict:
+    """
+    List Windows services.
+    filter_name: filter by name substring.
+    status_filter: 'running', 'stopped', or '' for all.
+    """
+    if not IS_WINDOWS:
+        return {"success": False, "error": "Service management is Windows-only."}
+    try:
+        import psutil
+        svcs = []
+        for svc in psutil.win_service_iter():
+            try:
+                info = svc.as_dict()
+                if filter_name and filter_name.lower() not in info["name"].lower() \
+                        and filter_name.lower() not in info["display_name"].lower():
+                    continue
+                if status_filter and info["status"] != status_filter:
+                    continue
+                svcs.append(info)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+        svcs.sort(key=lambda x: x["name"])
+        lines = [f"⚙️ *Services ({len(svcs)} found)*\n"]
+        for s in svcs[:25]:
+            icon = "🟢" if s["status"] == "running" else "🔴"
+            lines.append(f"{icon} *{s['display_name']}* (`{s['name']}`)")
+
+        return {"success": True, "services": svcs, "text": "\n".join(lines)}
+    except ImportError:
+        return {"success": False, "error": "psutil required. Run: pip install psutil"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def manage_service(name: str, action: str, confirm: bool = False) -> dict:
+    """
+    Start, stop, or restart a Windows service.
+    action: 'start' | 'stop' | 'restart'
+    """
+    if not IS_WINDOWS:
+        return {"success": False, "error": "Service management is Windows-only."}
+    if action not in ("start", "stop", "restart"):
+        return {"success": False, "error": "action must be 'start', 'stop', or 'restart'."}
+    if action in ("stop", "restart") and not confirm:
+        return {
+            "success": False,
+            "confirm": True,
+            "text": f"⚠️ {action.title()} service `{name}`? Reply `do it` to confirm.",
+        }
+    try:
+        result = subprocess.run(
+            ["sc", action, name] if action != "restart"
+            else ["net", "stop", name],
+            capture_output=True, text=True, timeout=30,
+        )
+        if action == "restart":
+            subprocess.run(["net", "start", name], capture_output=True, text=True, timeout=30)
+        output = (result.stdout or result.stderr or "").strip()
+        success = result.returncode == 0
+        return {
+            "success": success,
+            "text": f"{'✅' if success else '❌'} Service `{name}` {action}ed.\n{output[:300]}",
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ─── Environment Variables ────────────────────────────────────────────────────
+
+def get_env_var(name: str) -> dict:
+    """Get the value of an environment variable."""
+    value = os.environ.get(name)
+    if value is None:
+        return {"success": False, "error": f"Environment variable '{name}' not found."}
+    return {"success": True, "name": name, "value": value, "text": f"🔧 `{name}` = `{value}`"}
+
+
+def set_env_var(name: str, value: str, scope: str = "user") -> dict:
+    """
+    Set an environment variable.
+    scope: 'process' (current session only), 'user' (Windows user, persistent), 'system' (Windows system, requires admin)
+    """
+    os.environ[name] = value  # Always set for current process
+    if IS_WINDOWS and scope in ("user", "system"):
+        try:
+            import winreg
+            root = winreg.HKEY_CURRENT_USER if scope == "user" else winreg.HKEY_LOCAL_MACHINE
+            key_path = "Environment" if scope == "user" else r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+            with winreg.OpenKey(root, key_path, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+            # Broadcast WM_SETTINGCHANGE so new processes pick it up
+            import ctypes
+            ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, "Environment", 2, 5000, None)
+            return {"success": True, "text": f"✅ `{name}` set to `{value}` ({scope} scope, persistent)."}
+        except Exception as e:
+            return {"success": True, "text": f"✅ `{name}` set for current session (persistent write failed: {e})."}
+    return {"success": True, "text": f"✅ `{name}` = `{value}` (current session only)."}
+
+
+# ─── Window Management ────────────────────────────────────────────────────────
+
+def list_windows() -> dict:
+    """List all visible windows with their titles."""
+    try:
+        import pygetwindow as gw
+        windows = gw.getAllWindows()
+        visible = [w for w in windows if w.title.strip()]
+        lines = [f"🪟 *Open Windows ({len(visible)})*\n"]
+        for w in visible[:30]:
+            lines.append(f"• `{w.title[:60]}`")
+        return {"success": True, "windows": [w.title for w in visible], "text": "\n".join(lines)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def focus_window(title: str) -> dict:
+    """Bring a window to the foreground by title substring."""
+    try:
+        import pygetwindow as gw
+        matches = [w for w in gw.getAllWindows() if title.lower() in w.title.lower() and w.title.strip()]
+        if not matches:
+            return {"success": False, "error": f"No window found matching '{title}'."}
+        w = matches[0]
+        w.activate()
+        return {"success": True, "text": f"🪟 Focused: *{w.title}*"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def minimize_window(title: str) -> dict:
+    """Minimize a window by title substring."""
+    try:
+        import pygetwindow as gw
+        matches = [w for w in gw.getAllWindows() if title.lower() in w.title.lower()]
+        if not matches:
+            return {"success": False, "error": f"No window matching '{title}'."}
+        matches[0].minimize()
+        return {"success": True, "text": f"🪟 Minimized: *{matches[0].title}*"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def maximize_window(title: str) -> dict:
+    """Maximize a window by title substring."""
+    try:
+        import pygetwindow as gw
+        matches = [w for w in gw.getAllWindows() if title.lower() in w.title.lower()]
+        if not matches:
+            return {"success": False, "error": f"No window matching '{title}'."}
+        matches[0].maximize()
+        return {"success": True, "text": f"🪟 Maximized: *{matches[0].title}*"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ─── Misc Utilities ───────────────────────────────────────────────────────────
+
+def empty_recycle_bin(confirm: bool = False) -> dict:
+    """Empty the Windows Recycle Bin."""
+    if not IS_WINDOWS:
+        return {"success": False, "error": "Recycle Bin is Windows-only."}
+    if not confirm:
+        return {"success": False, "confirm": True, "text": "🗑️ Empty Recycle Bin? Reply `empty it`."}
+    try:
+        import winshell
+        winshell.recycle_bin().empty(confirm=False, show_progress=False, sound=False)
+        return {"success": True, "text": "🗑️ Recycle Bin emptied."}
+    except ImportError:
+        # Fallback via PowerShell
+        subprocess.run(
+            ["powershell", "-Command", "Clear-RecycleBin -Confirm:$false"],
+            capture_output=True, timeout=30,
+        )
+        return {"success": True, "text": "🗑️ Recycle Bin emptied."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def open_folder(path: str) -> dict:
+    """Open a folder in Windows Explorer / Finder."""
+    try:
+        p = Path(path).expanduser()
+        if not p.exists():
+            return {"success": False, "error": f"Path not found: {path}"}
+        if IS_WINDOWS:
+            subprocess.Popen(["explorer", str(p)])
+        elif IS_MAC:
+            subprocess.Popen(["open", str(p)])
+        else:
+            subprocess.Popen(["xdg-open", str(p)])
+        return {"success": True, "text": f"📂 Opened: `{p}`"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def get_system_info() -> dict:
+    """Return detailed hardware and OS information."""
+    try:
+        import psutil, platform, socket
+        cpu_info   = platform.processor()
+        cpu_cores  = psutil.cpu_count(logical=False)
+        cpu_threads = psutil.cpu_count(logical=True)
+        cpu_freq   = psutil.cpu_freq()
+        ram        = psutil.virtual_memory()
+        ram_gb     = round(ram.total / 1024**3, 1)
+        hostname   = socket.gethostname()
+        os_info    = f"{platform.system()} {platform.release()} ({platform.version()[:30]})"
+        uptime_s   = int(psutil.boot_time())
+        from datetime import datetime
+        boot_time  = datetime.fromtimestamp(uptime_s).strftime("%Y-%m-%d %H:%M")
+
+        text = (
+            f"🖥️ *System Info*\n\n"
+            f"*Host:* {hostname}\n"
+            f"*OS:* {os_info}\n"
+            f"*CPU:* {cpu_info}\n"
+            f"  Cores: {cpu_cores} physical / {cpu_threads} logical\n"
+            + (f"  Freq: {round(cpu_freq.current)}MHz (max {round(cpu_freq.max)}MHz)\n" if cpu_freq else "")
+            + f"*RAM:* {ram_gb}GB total ({ram.percent}% used)\n"
+            f"*Boot time:* {boot_time}\n"
+        )
+        return {"success": True, "text": text}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
