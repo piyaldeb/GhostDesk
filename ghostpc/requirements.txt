@@ -1,5 +1,5 @@
 # ─── Core / Telegram ─────────────────────────────────────────────────────────
-python-telegram-bot==20.7
+python-telegram-bot==21.11.1   # 21.x is required for Python 3.13 (__slots__ fix)
 python-dotenv
 
 # ─── AI Providers ────────────────────────────────────────────────────────────

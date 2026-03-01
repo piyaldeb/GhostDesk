@@ -19,7 +19,7 @@ classifiers = [
 
 dependencies = [
     # Telegram
-    "python-telegram-bot>=20.7,<21.0",
+    "python-telegram-bot>=21.0,<23.0",
     "python-dotenv",
 
     # AI providers
