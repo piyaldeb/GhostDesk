@@ -34,6 +34,7 @@ Available modules:
 - telegram: send_message(text), send_file(file_path, caption)
 - workflow: create_workflow_from_description(description), list_workflows_text(), delete_workflow_by_id(id), run_workflow_now(id)
 - config_manager: get_config_status(), set_config(key, value), get_setup_guide(service), suggest_setup(), get_env_path_info()
+- google_services: list_drive_files(query, folder_id, max_results), upload_to_drive(file_path, folder_id), download_from_drive(file_id, dest_path), search_drive(query), delete_drive_file(file_id), list_calendar_events(calendar_id, days_ahead, max_results), create_calendar_event(title, start, end, description, location, attendees), delete_calendar_event(event_id), get_calendar_event(event_id), read_google_doc(doc_id_or_url), append_to_google_doc(doc_id_or_url, text), create_google_doc(title, content), get_gmail_messages(label, query, max_results), send_gmail(to, subject, body), reply_gmail(message_id, body), get_gmail_full_body(message_id), list_google_contacts(query, max_results)
 Rules:
 1. Always return ONLY valid JSON with "thought" and "actions" array — no markdown, no explanation outside JSON.
 2. Each action object: { "module": "...", "function": "...", "args": {...} }
@@ -71,6 +72,19 @@ Rules:
 34. "learn my writing style" / "learn from my emails" / "train personality" / "import sent emails" → personality.learn_from_sent_emails().
 35. "personality setup" / "set up personality clone" / "configure ghost mode" → personality.setup_personality().
 36. "how much personality data" / "personality status" / "training data status" → personality.get_personality_status().
+37. "my drive" / "google drive" / "files in drive" / "list drive" → google_services.list_drive_files(). NEVER open a browser.
+38. "upload to drive" / "send to drive" / "save to drive" → google_services.upload_to_drive(file_path=...).
+39. "download from drive" / "get file from drive" → google_services.download_from_drive(file_id=...).
+40. "search drive for X" / "find in drive" → google_services.search_drive(query=X).
+41. "my calendar" / "upcoming events" / "what's on my calendar" / "google calendar" → google_services.list_calendar_events(). NEVER open a browser.
+42. "add event" / "create calendar event" / "schedule meeting" / "add to calendar" → google_services.create_calendar_event(title, start, end, ...).
+43. "google doc" / "read doc" / "open document" (with URL or ID) → google_services.read_google_doc(). NEVER open a browser.
+44. "create google doc" / "new doc" → google_services.create_google_doc(title, content).
+45. "append to doc" / "add to google doc" → google_services.append_to_google_doc(doc_id_or_url, text).
+46. "gmail" / "check gmail" / "read gmail" → google_services.get_gmail_messages(). NEVER open a browser. Use only if user explicitly says Gmail. Otherwise prefer email module (IMAP).
+47. "send gmail" / "send via gmail" → google_services.send_gmail(to, subject, body).
+48. "google contacts" / "my contacts" / "find contact" → google_services.list_google_contacts(query=...).
+49. All google_services operations use the Google API (OAuth2/service account) — NEVER open browser, NEVER use Playwright/Selenium for any Google service.
 
 Response format (STRICT — no other text):
 {

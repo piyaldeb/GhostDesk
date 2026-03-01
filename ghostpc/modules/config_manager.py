@@ -68,6 +68,9 @@ _CONFIG_GROUPS = {
         "PERSONALITY_CLONE_ENABLED",
         "AUTONOMOUS_MODE_ENABLED",
     ],
+    "Google Services": [
+        "GOOGLE_SHEETS_CREDS_PATH",
+    ],
     "Advanced": [
         "TELEGRAM_API_BASE",
         "HTTPS_PROXY",
@@ -192,6 +195,32 @@ _SETUP_GUIDES = {
         "*Enable voice replies (bot speaks back):*\n"
         "  `set VOICE_REPLY_ENABLED to true`\n\n"
         "*Restart:* say `restart ghostdesk`"
+    ),
+    "google_services": (
+        "🗂️ *Google Services Setup (Drive, Calendar, Docs, Gmail, Contacts)*\n\n"
+        "All Google services use the same credentials — set up once, use everywhere.\n"
+        "No browser is opened for normal use — all API calls run in the background.\n\n"
+        "*Option A — Service Account (best for automation):*\n"
+        "1️⃣ Go to: console.cloud.google.com\n"
+        "2️⃣ Create a project (or reuse existing)\n"
+        "3️⃣ Enable APIs: Drive, Calendar, Docs, Gmail, Sheets, People\n"
+        "4️⃣ IAM & Admin → Service Accounts → Create → Download JSON key\n"
+        "5️⃣ Save as: `~/.ghostdesk/google_service_account.json`\n"
+        "   Or set: `set GOOGLE_SHEETS_CREDS_PATH to /full/path/to/key.json`\n"
+        "6️⃣ Share your Drive/Sheets/Docs with the service account email\n\n"
+        "*Option B — OAuth2 (easier, personal account):*\n"
+        "1️⃣ Same console → APIs & Services → Credentials\n"
+        "2️⃣ Create OAuth 2.0 Client ID → Desktop App → Download JSON\n"
+        "3️⃣ Save as: `~/.ghostdesk/google_oauth_secret.json`\n"
+        "4️⃣ First use opens a browser once to authorize → cached forever\n\n"
+        "*Then use in chat:*\n"
+        "  `list my drive files`\n"
+        "  `upload report.pdf to drive`\n"
+        "  `show my calendar events`\n"
+        "  `create event: Team meeting tomorrow at 3pm`\n"
+        "  `read google doc docs.google.com/document/d/ID`\n"
+        "  `check gmail inbox`\n"
+        "  `find contact John in my contacts`"
     ),
 }
 
