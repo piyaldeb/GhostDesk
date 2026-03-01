@@ -268,6 +268,15 @@ class GhostAgent:
                         caption = result.get("caption", f"Result from {module}.{function}")
                         await self.send_file(fp, caption)
 
+                    # stop_chain: True — this action requires user approval before proceeding.
+                    # Abort any remaining actions in the plan (e.g. draft_reply must not
+                    # be followed by an auto-send in the same plan).
+                    if result.get("stop_chain"):
+                        remaining = len(actions) - i - 1
+                        if remaining > 0:
+                            logger.info(f"stop_chain triggered after {module}.{function} — skipping {remaining} remaining action(s)")
+                        break
+
             except Exception as e:
                 logger.error(f"Action {i} error: {e}", exc_info=True)
                 recovery = self.ai.suggest_recovery(action, str(e))

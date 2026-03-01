@@ -319,9 +319,10 @@ def draft_reply(
         return {
             "success": True,
             "reply": result["reply"],
+            "stop_chain": True,   # agent must NOT auto-send — user must approve first
             "text": (
                 f"Draft reply to *{contact}*:\n\n{result['reply']}\n\n"
-                f"Say 'refine that reply — [instruction]' to adjust, or approve and send manually."
+                f"Say 'refine that reply — [instruction]' to adjust, or 'send it' / 'send that email' to send."
             ),
         }
     return result
@@ -353,7 +354,8 @@ def refine_reply(instruction: str) -> dict:
         return {
             "success": True,
             "reply": refined,
-            "text": f"Refined reply to *{contact}*:\n\n{refined}",
+            "stop_chain": True,   # still needs user approval before sending
+            "text": f"Refined reply to *{contact}*:\n\n{refined}\n\nSay 'send it' to send, or refine further.",
         }
     except Exception as e:
         logger.error(f"refine_reply error: {e}")
