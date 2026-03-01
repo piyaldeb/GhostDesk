@@ -161,6 +161,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/schedules — Active scheduled tasks\n"
         "/config — View & edit all settings\n"
         "/setup — Setup wizard & feature suggestions\n"
+        "/guides — All setup guides (Telegram, email, relay, Ollama…)\n"
         "/audit — Action audit log (security)\n"
         "/pin YOUR_PIN — Unlock CRITICAL actions (restart/shutdown)\n"
         "/help — This guide\n\n"
@@ -437,6 +438,27 @@ async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=keyboard,
     )
+
+
+async def cmd_guides(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show all available setup guides, or a specific one if given as argument."""
+    if not _is_authorized(update):
+        return
+    from modules.config_manager import list_guides, get_setup_guide
+    if context.args:
+        query = " ".join(context.args)
+        result = get_setup_guide(query)
+    else:
+        result = list_guides()
+    text = result.get("text", "")
+    # Split long guides across chunks, with Markdown fallback to plain text
+    chunk_size = 4000
+    for i in range(0, len(text), chunk_size):
+        chunk = text[i:i + chunk_size]
+        try:
+            await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            await update.message.reply_text(chunk)
 
 
 async def cmd_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1214,6 +1236,7 @@ def main():
     app.add_handler(CommandHandler("workflows", cmd_workflows))
     app.add_handler(CommandHandler("config", cmd_config))
     app.add_handler(CommandHandler("setup", cmd_setup))
+    app.add_handler(CommandHandler("guides", cmd_guides))
     app.add_handler(CommandHandler("update", cmd_update))
     app.add_handler(CommandHandler("reinstall", cmd_reinstall))
     app.add_handler(CommandHandler("pin", cmd_pin))
@@ -1279,13 +1302,27 @@ def main():
 
         # Workflow schedule registration
         try:
+            from apscheduler.schedulers.asyncio import AsyncIOScheduler
             from modules.workflow_engine import register_scheduled_workflows
+            _wf_scheduler = AsyncIOScheduler()
+            _wf_scheduler.start()
             register_scheduled_workflows(
-                application, int(config.TELEGRAM_CHAT_ID)
+                application, int(config.TELEGRAM_CHAT_ID), _wf_scheduler
             )
             logger.info("Workflow schedules registered.")
         except Exception as e:
+            _wf_scheduler = None
             logger.warning(f"Workflow scheduler init failed: {e}")
+
+        # YouTube interest alerts
+        try:
+            from modules.youtube_insights import register_yt_alerts
+            register_yt_alerts(
+                application, int(config.TELEGRAM_CHAT_ID),
+                _wf_scheduler or __import__("apscheduler.schedulers.asyncio", fromlist=["AsyncIOScheduler"]).AsyncIOScheduler(),
+            )
+        except Exception as e:
+            logger.warning(f"YouTube alerts init failed: {e}")
 
         # ── Playwright browser pre-install (background, non-blocking) ───────
         async def _install_playwright():

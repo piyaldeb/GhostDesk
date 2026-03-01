@@ -9,6 +9,33 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Services that must be accessed via their native API modules, never via browser.
+# Maps URL fragment → recommended module/function to show in the error.
+_API_ONLY = {
+    "mail.google.com":           "google_services.get_gmail_messages()",
+    "gmail.com":                 "google_services.get_gmail_messages() or email.get_emails()",
+    "docs.google.com/spreadsheet": "document.read_google_sheet()",
+    "docs.google.com/document":  "google_services.read_google_doc()",
+    "drive.google.com":          "google_services.list_drive_files()",
+    "calendar.google.com":       "google_services.list_calendar_events()",
+    "sheets.googleapis.com":     "document.read_google_sheet()",
+    "outlook.live.com":          "email.get_emails()",
+    "outlook.office.com":        "email.get_emails()",
+}
+
+
+def _api_only_check(url: str) -> Optional[dict]:
+    """Return an error dict if this URL belongs to a service with a native API module."""
+    u = url.lower()
+    for fragment, module in _API_ONLY.items():
+        if fragment in u:
+            msg = (
+                f"⛔ Browser blocked for API-supported service.\n"
+                f"Use `{module}` instead — it connects directly without opening a browser."
+            )
+            return {"success": False, "error": msg, "text": msg}
+    return None
+
 
 def _chromium_exe_path() -> Optional[str]:
     """Return the expected Playwright chromium executable path, or None if not found."""
@@ -75,6 +102,9 @@ async def _get_browser():
 
 async def open_url(url: str, headless: bool = False) -> dict:
     """Open a URL in the browser (visible window)."""
+    blocked = _api_only_check(url)
+    if blocked:
+        return blocked
     try:
         from playwright.async_api import async_playwright
         async with async_playwright() as p:
@@ -99,6 +129,9 @@ async def open_url(url: str, headless: bool = False) -> dict:
 
 async def get_page_text(url: str) -> dict:
     """Fetch a URL and return visible text content."""
+    blocked = _api_only_check(url)
+    if blocked:
+        return blocked
     try:
         from playwright.async_api import async_playwright
         async with async_playwright() as p:
@@ -181,6 +214,9 @@ async def search_web(query: str, num_results: int = 5) -> dict:
 
 async def scrape_page(url: str, selector: Optional[str] = None) -> dict:
     """Scrape a page and return its content for AI analysis."""
+    blocked = _api_only_check(url)
+    if blocked:
+        return blocked
     try:
         from playwright.async_api import async_playwright
         async with async_playwright() as p:
@@ -220,6 +256,9 @@ async def fill_form_on_web(url: str, fields: dict) -> dict:
     Navigate to a URL and fill form fields.
     fields: { "label_or_placeholder_or_selector": "value" }
     """
+    blocked = _api_only_check(url)
+    if blocked:
+        return blocked
     try:
         from playwright.async_api import async_playwright
         async with async_playwright() as p:
@@ -274,6 +313,9 @@ async def fill_form_on_web(url: str, fields: dict) -> dict:
 
 async def click_element(url: str, selector: str) -> dict:
     """Navigate to a URL and click an element by CSS selector or text."""
+    blocked = _api_only_check(url)
+    if blocked:
+        return blocked
     try:
         from playwright.async_api import async_playwright
         async with async_playwright() as p:
@@ -308,6 +350,9 @@ async def click_element(url: str, selector: str) -> dict:
 
 async def take_screenshot_of_url(url: str, output_path: Optional[str] = None) -> dict:
     """Take a screenshot of a web page."""
+    blocked = _api_only_check(url)
+    if blocked:
+        return blocked
     try:
         from playwright.async_api import async_playwright
         from pathlib import Path

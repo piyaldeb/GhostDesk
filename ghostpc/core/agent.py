@@ -118,6 +118,43 @@ def _resolve_args(args: dict, results: list) -> dict:
     return resolved
 
 
+# ─── Browser → API auto-redirect ─────────────────────────────────────────────
+
+def _browser_redirect(function: str, args: dict):
+    """
+    If the AI mistakenly routes to the browser module for a service that has
+    a native API module, silently redirect to the correct module/function.
+    Returns (module, function, args) tuple or None if no redirect needed.
+    """
+    url = str(args.get("url", "")).lower()
+    if not url:
+        return None
+
+    # Google Sheets
+    if "docs.google.com/spreadsheet" in url or "sheets.googleapis.com" in url:
+        return ("document", "read_google_sheet", {"url_or_id": args.get("url", "")})
+
+    # Google Docs
+    if "docs.google.com/document" in url:
+        return ("google_services", "read_google_doc", {"doc_id_or_url": args.get("url", "")})
+
+    # Google Drive
+    if "drive.google.com" in url:
+        return ("google_services", "list_drive_files", {"query": ""})
+
+    # Google Calendar
+    if "calendar.google.com" in url:
+        return ("google_services", "list_calendar_events", {})
+
+    # Gmail / Outlook webmail
+    if "mail.google.com" in url or "gmail.com" in url:
+        return ("google_services", "get_gmail_messages", {"max_results": 10})
+    if "outlook.live.com" in url or "outlook.office.com" in url:
+        return ("email", "get_emails", {"folder": "inbox", "limit": 10})
+
+    return None
+
+
 # ─── Module Dispatch Table ────────────────────────────────────────────────────
 
 def _get_module_function(module: str, function: str) -> Optional[Callable]:
@@ -151,6 +188,8 @@ def _get_module_function(module: str, function: str) -> Optional[Callable]:
             from modules import personality as mod
         elif module == "workflow":
             from modules import workflow_engine as mod
+        elif module == "youtube_insights":
+            from modules import youtube_insights as mod
         elif module == "config_manager":
             from modules import config_manager as mod
         elif module == "google_services":
@@ -231,6 +270,13 @@ class GhostAgent:
                 result = await self._handle_telegram_action(function, resolved_args)
                 results.append(result)
                 continue
+
+            # ── Auto-redirect: browser → native API module for supported services ──
+            if module == "browser":
+                redirect = _browser_redirect(function, resolved_args)
+                if redirect:
+                    module, function, resolved_args = redirect
+                    logger.info(f"Auto-redirected browser call → {module}.{function}")
 
             # Check for destructive action confirmation flag
             # (Handled upstream in main.py before calling agent)

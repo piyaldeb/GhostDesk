@@ -18,6 +18,11 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Module-level bot context — set by register_scheduled_workflows so agent-callable
+# wrappers (like run_workflow_now) can send photos/messages without a Telegram handler.
+_bot_app = None
+_chat_id: int = 0
+
 
 # ─── DB helpers ───────────────────────────────────────────────────────────────
 
@@ -371,6 +376,9 @@ def register_scheduled_workflows(bot_app, chat_id: int, scheduler=None):
     If scheduler is None a new AsyncIOScheduler is created and started.
     Returns the scheduler used (caller may need to start it).
     """
+    global _bot_app, _chat_id
+    _bot_app = bot_app
+    _chat_id = chat_id
     from apscheduler.triggers.cron import CronTrigger
     from apscheduler.triggers.interval import IntervalTrigger
 
@@ -568,5 +576,5 @@ async def run_workflow_now(id: int) -> dict:
     wf = get_workflow(int(id))
     if not wf:
         return {"success": False, "text": f"❌ Workflow #{id} not found."}
-    await execute_workflow(wf, {})
+    await execute_workflow(wf, {}, bot_app=_bot_app, chat_id=_chat_id)
     return {"success": True, "text": f"▶ Workflow #{id} '{wf['name']}' triggered."}

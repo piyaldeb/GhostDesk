@@ -123,6 +123,12 @@ RELAY_URL                = os.getenv("RELAY_URL", "")
 RELAY_SECRET             = os.getenv("RELAY_SECRET", "")
 RELAY_HEARTBEAT_INTERVAL = int(os.getenv("RELAY_HEARTBEAT_INTERVAL", "60"))
 
+# ─── YouTube Insights ─────────────────────────────────────────────────────────
+# Reads liked videos + subscriptions to build a taste profile and alert on new content.
+# Requires YouTube Data API v3 enabled in Google Cloud Console (same OAuth JSON as Google services).
+YOUTUBE_ALERTS_ENABLED        = os.getenv("YOUTUBE_ALERTS_ENABLED", "false").lower() == "true"
+YOUTUBE_ALERTS_INTERVAL_HOURS = int(os.getenv("YOUTUBE_ALERTS_INTERVAL_HOURS", "24"))
+
 # ─── Platform flags ───────────────────────────────────────────────────────────
 IS_WINDOWS = sys.platform == "win32"
 IS_MAC     = sys.platform == "darwin"
