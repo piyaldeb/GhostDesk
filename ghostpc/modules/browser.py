@@ -123,8 +123,9 @@ async def open_url(url: str, headless: bool = False) -> dict:
             await browser.close()
             return {"success": True, "url": url, "title": title, "text": f"✅ Opened: {title}"}
     except Exception as e:
-        logger.error(f"open_url error: {e}")
-        return {"success": False, "error": str(e)}
+        msg = repr(e) if not str(e) else str(e)
+        logger.error(f"open_url error: {msg}")
+        return {"success": False, "error": msg}
 
 
 async def get_page_text(url: str) -> dict:
@@ -154,8 +155,9 @@ async def get_page_text(url: str) -> dict:
                 "content": clean_text,
             }
     except Exception as e:
-        logger.error(f"get_page_text error: {e}")
-        return {"success": False, "error": str(e)}
+        msg = repr(e) if not str(e) else str(e)
+        logger.error(f"get_page_text error: {msg}")
+        return {"success": False, "error": msg}
 
 
 async def search_web(query: str, num_results: int = 5) -> dict:
@@ -208,8 +210,9 @@ async def search_web(query: str, num_results: int = 5) -> dict:
             }
 
     except Exception as e:
-        logger.error(f"search_web error: {e}")
-        return {"success": False, "error": str(e)}
+        msg = repr(e) if not str(e) else str(e)
+        logger.error(f"search_web error: {msg}")
+        return {"success": False, "error": msg}
 
 
 async def scrape_page(url: str, selector: Optional[str] = None) -> dict:
@@ -247,8 +250,9 @@ async def scrape_page(url: str, selector: Optional[str] = None) -> dict:
                 "text": clean,
             }
     except Exception as e:
-        logger.error(f"scrape_page error: {e}")
-        return {"success": False, "error": str(e)}
+        msg = repr(e) if not str(e) else str(e)
+        logger.error(f"scrape_page error: {msg}")
+        return {"success": False, "error": msg}
 
 
 async def fill_form_on_web(url: str, fields: dict) -> dict:
@@ -307,8 +311,9 @@ async def fill_form_on_web(url: str, fields: dict) -> dict:
             return {"success": True, "filled": filled, "failed": failed, "text": text}
 
     except Exception as e:
-        logger.error(f"fill_form_on_web error: {e}")
-        return {"success": False, "error": str(e)}
+        msg = repr(e) if not str(e) else str(e)
+        logger.error(f"fill_form_on_web error: {msg}")
+        return {"success": False, "error": msg}
 
 
 async def click_element(url: str, selector: str) -> dict:
@@ -344,8 +349,9 @@ async def click_element(url: str, selector: str) -> dict:
                 return {"success": False, "error": f"Element not found: {selector}"}
 
     except Exception as e:
-        logger.error(f"click_element error: {e}")
-        return {"success": False, "error": str(e)}
+        msg = repr(e) if not str(e) else str(e)
+        logger.error(f"click_element error: {msg}")
+        return {"success": False, "error": msg}
 
 
 async def take_screenshot_of_url(url: str, output_path: Optional[str] = None) -> dict:
@@ -377,4 +383,5 @@ async def take_screenshot_of_url(url: str, output_path: Optional[str] = None) ->
             "text": f"✅ Screenshot saved: {output_path}",
         }
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        msg = repr(e) if not str(e) else str(e)
+        return {"success": False, "error": msg}
