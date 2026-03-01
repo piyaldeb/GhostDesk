@@ -25,7 +25,7 @@ def main():
             "AI_PROVIDER=claude\n"
             "CLAUDE_API_KEY=\n"
             "OPENAI_API_KEY=\n"
-            "AI_MODEL=claude-opus-4-5\n\n"
+            "AI_MODEL=claude-sonnet-4-6\n\n"
             "WHATSAPP_ENABLED=false\n"
             "WHATSAPP_ACCESS_TOKEN=\n"
             "WHATSAPP_PHONE_ID=\n"
