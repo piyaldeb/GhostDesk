@@ -397,3 +397,227 @@ def get_ghost_replies(days: int = 1) -> dict:
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ─── Personality Learning ──────────────────────────────────────────────────────
+
+def learn_from_sent_emails(limit: int = 150) -> dict:
+    """
+    Pull sent emails via IMAP and store them as personality training data.
+    Strips quoted replies so only the user's own words are learned.
+    """
+    import imaplib
+    import email as email_lib
+    from email.header import decode_header as _dh
+
+    from config import EMAIL_ADDRESS, EMAIL_PASSWORD, EMAIL_IMAP
+
+    if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
+        return {
+            "success": False,
+            "needs_setup": True,
+            "text": (
+                "Email not configured — I need your email credentials to learn your writing style.\n\n"
+                "Set these first:\n"
+                "  `set EMAIL_ADDRESS to you@gmail.com`\n"
+                "  `set EMAIL_PASSWORD to your-app-password`\n"
+                "  `set EMAIL_IMAP to imap.gmail.com`\n\n"
+                "Then say `learn my writing style from email` again."
+            ),
+        }
+
+    try:
+        imap_host = EMAIL_IMAP or "imap.gmail.com"
+        imap = imaplib.IMAP4_SSL(imap_host)
+        imap.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+
+        # Find Sent folder (varies by provider)
+        sent_folder = None
+        for name in ["[Gmail]/Sent Mail", "Sent", "Sent Items", "Sent Messages",
+                     "INBOX.Sent", "Sent Mail"]:
+            try:
+                status, _ = imap.select(f'"{name}"')
+                if status == "OK":
+                    sent_folder = f'"{name}"'
+                    break
+            except Exception:
+                continue
+
+        if not sent_folder:
+            imap.logout()
+            return {"success": False, "error": "Could not find Sent folder. Check IMAP settings."}
+
+        _, data = imap.search(None, "ALL")
+        uids = data[0].split()
+        # Most recent first
+        uids = uids[-limit:] if len(uids) > limit else uids
+
+        from core.memory import get_connection
+
+        stored = 0
+        with get_connection() as conn:
+            for uid in reversed(uids):  # newest first
+                try:
+                    _, msg_data = imap.fetch(uid, "(RFC822)")
+                    raw = msg_data[0][1]
+                    msg = email_lib.message_from_bytes(raw)
+
+                    # Extract plain text body
+                    body = ""
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            ct = part.get_content_type()
+                            if ct == "text/plain":
+                                body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                                break
+                    else:
+                        body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+
+                    # Strip quoted lines (> prefix) and email headers in body
+                    lines = []
+                    for line in body.splitlines():
+                        stripped = line.strip()
+                        if not stripped.startswith(">") and not stripped.startswith("On ") \
+                                and not stripped.startswith("From:") \
+                                and not stripped.startswith("Sent:"):
+                            lines.append(line)
+                    body = "\n".join(lines).strip()
+
+                    if len(body) > 30:
+                        date_str = msg.get("Date", "")
+                        conn.execute(
+                            "INSERT OR IGNORE INTO conversations "
+                            "(contact, direction, message, source, timestamp) VALUES (?, ?, ?, ?, ?)",
+                            ("_email_training", "out", body[:2000], "email", date_str),
+                        )
+                        stored += 1
+                except Exception:
+                    continue
+            conn.commit()
+
+        imap.logout()
+        return {
+            "success": True,
+            "stored": stored,
+            "text": (
+                f"✅ Learned from *{stored}* sent emails.\n"
+                f"Your writing style profile has been updated.\n"
+                f"Say `build my style profile` to see the analysis."
+            ),
+        }
+
+    except imaplib.IMAP4.error as e:
+        return {
+            "success": False,
+            "error": f"IMAP login failed: {e}\nCheck EMAIL_ADDRESS, EMAIL_PASSWORD, and EMAIL_IMAP.",
+        }
+    except Exception as e:
+        logger.error(f"learn_from_sent_emails error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def store_screen_behavior(text_snippet: str, app_name: str = "") -> None:
+    """
+    Called by screen_watcher when it detects the user composing text.
+    Stores the snippet as personality training data (outgoing behavior).
+    """
+    if not text_snippet or len(text_snippet.strip()) < 20:
+        return
+    try:
+        from core.memory import get_connection
+        from datetime import datetime
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO conversations "
+                "(contact, direction, message, source, timestamp) VALUES (?, ?, ?, ?, ?)",
+                ("_screen_training", "out", text_snippet[:1000], f"screen:{app_name}",
+                 datetime.now().isoformat()),
+            )
+            conn.commit()
+    except Exception as e:
+        logger.debug(f"store_screen_behavior error: {e}")
+
+
+def get_personality_status() -> dict:
+    """Show how much training data is available for the personality clone."""
+    try:
+        from core.memory import get_connection
+        with get_connection() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM conversations WHERE direction = 'out'"
+            ).fetchone()[0]
+            email_count = conn.execute(
+                "SELECT COUNT(*) FROM conversations WHERE direction = 'out' AND source = 'email'"
+            ).fetchone()[0]
+            screen_count = conn.execute(
+                "SELECT COUNT(*) FROM conversations WHERE direction = 'out' AND source LIKE 'screen:%'"
+            ).fetchone()[0]
+            wa_count = conn.execute(
+                "SELECT COUNT(*) FROM conversations WHERE direction = 'out' AND source = 'whatsapp'"
+            ).fetchone()[0]
+
+        quality = "excellent" if total >= 100 else "good" if total >= 30 else "limited"
+        tip = ""
+        if email_count == 0:
+            tip = "\n💡 Say `learn my writing style from email` to add email training data."
+        elif total < 30:
+            tip = "\n💡 More data = better clone. Keep using the bot and enable screen watcher."
+
+        return {
+            "success": True,
+            "total": total,
+            "text": (
+                f"🧠 *Personality Clone Data*\n\n"
+                f"Total training samples: *{total}* ({quality})\n"
+                f"  📧 From email: {email_count}\n"
+                f"  👁️ From screen: {screen_count}\n"
+                f"  📱 From WhatsApp: {wa_count}"
+                + tip
+            ),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def setup_personality() -> dict:
+    """
+    Guided setup for personality clone — checks data sources and suggests next steps.
+    Called automatically when PERSONALITY_CLONE_ENABLED=true on first boot.
+    """
+    from config import EMAIL_ADDRESS, EMAIL_PASSWORD, SCREEN_WATCHER_ENABLED
+
+    status = get_personality_status()
+    total = status.get("total", 0)
+
+    lines = ["🧠 *Personality Clone Setup*\n"]
+
+    # Email source
+    if EMAIL_ADDRESS and EMAIL_PASSWORD:
+        lines.append("📧 Email: ✅ configured")
+        if total < 20:
+            lines.append(
+                "   → Say `learn my writing style from email` to import your sent messages"
+            )
+    else:
+        lines.append("📧 Email: ❌ not configured (needed for best style learning)")
+        lines.append("   → Say `how do I set up email?` for steps")
+
+    # Screen watcher
+    if SCREEN_WATCHER_ENABLED:
+        lines.append("👁️ Screen Watcher: ✅ active — learning from your typing in real time")
+    else:
+        lines.append("👁️ Screen Watcher: ❌ off")
+        lines.append("   → Say `set SCREEN_WATCHER_ENABLED to true` then restart")
+
+    # Training data summary
+    lines.append(f"\n📊 Training samples: *{total}*")
+    if total == 0:
+        lines.append("⚠️ No training data yet — the bot will use a generic style until you add data.")
+    elif total < 30:
+        lines.append("⚡ Getting started — a few more samples will improve accuracy.")
+    else:
+        lines.append("✅ Enough data for accurate personality cloning.")
+
+    lines.append("\nSay `build my style profile` to see the AI's style analysis of you.")
+
+    return {"success": True, "text": "\n".join(lines)}

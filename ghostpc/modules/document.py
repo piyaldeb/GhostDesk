@@ -675,3 +675,215 @@ def excel_to_report(
         report_type=report_type,
         output_format=output_format,
     )
+
+
+# ─── Google Sheets (API backend — no browser) ─────────────────────────────────
+
+def _get_gspread_client():
+    """
+    Return an authenticated gspread client.
+    Auth priority:
+      1. Service account JSON file at GOOGLE_SHEETS_CREDS_PATH
+      2. OAuth2 token cache at ~/.ghostdesk/google_token.json
+    Raises ImportError if gspread/google-auth not installed.
+    Raises FileNotFoundError if no credentials found.
+    """
+    import gspread
+    from config import USER_DATA_DIR
+
+    # ── Service account ──────────────────────────────────────────────────────
+    creds_path_env = os.environ.get("GOOGLE_SHEETS_CREDS_PATH", "")
+    default_sa = USER_DATA_DIR / "google_service_account.json"
+
+    if creds_path_env and Path(creds_path_env).exists():
+        return gspread.service_account(filename=creds_path_env)
+    if default_sa.exists():
+        return gspread.service_account(filename=str(default_sa))
+
+    # ── OAuth2 (user browser flow, credentials cached) ───────────────────────
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
+
+    SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+    token_path = USER_DATA_DIR / "google_token.json"
+    oauth_secret = USER_DATA_DIR / "google_oauth_secret.json"
+
+    creds = None
+    if token_path.exists():
+        creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
+
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        elif oauth_secret.exists():
+            flow = InstalledAppFlow.from_client_secrets_file(str(oauth_secret), SCOPES)
+            creds = flow.run_local_server(port=0)
+        else:
+            raise FileNotFoundError(
+                "No Google credentials found.\n"
+                "Option A — Service account: put google_service_account.json in ~/.ghostdesk/\n"
+                "Option B — OAuth2: put google_oauth_secret.json in ~/.ghostdesk/\n"
+                "Say `how do I set up Google Sheets?` for a step-by-step guide."
+            )
+        token_path.write_text(creds.to_json())
+
+    return gspread.authorize(creds)
+
+
+def read_google_sheet(
+    url_or_id: str,
+    sheet_name: Optional[str] = None,
+    range_: Optional[str] = None,
+) -> dict:
+    """
+    Read data from a Google Sheet using the Sheets API — no browser required.
+
+    Args:
+        url_or_id: Full Google Sheets URL or just the spreadsheet ID
+        sheet_name: Worksheet name (default: first sheet)
+        range_: Optional A1-notation range e.g. "A1:D20"
+    """
+    try:
+        import gspread
+    except ImportError:
+        return {
+            "success": False,
+            "error": "Install required: pip install gspread google-auth google-auth-oauthlib",
+        }
+
+    try:
+        gc = _get_gspread_client()
+
+        # Accept both full URL and bare spreadsheet ID
+        if "docs.google.com" in url_or_id:
+            sh = gc.open_by_url(url_or_id)
+        else:
+            sh = gc.open_by_key(url_or_id)
+
+        ws = sh.worksheet(sheet_name) if sheet_name else sh.get_worksheet(0)
+
+        if range_:
+            values = ws.get(range_)
+            rows = [dict(zip(values[0], row)) for row in values[1:]] if len(values) > 1 else []
+        else:
+            rows = ws.get_all_records()
+
+        title = sh.title
+        ws_name = ws.title
+        return {
+            "success": True,
+            "data": rows,
+            "total_rows": len(rows),
+            "text": (
+                f"📊 Google Sheet: *{title}* / *{ws_name}*\n"
+                f"Rows: {len(rows)}"
+            ),
+            "sheet_title": title,
+            "worksheet": ws_name,
+        }
+
+    except FileNotFoundError as e:
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"read_google_sheet error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def write_google_sheet(
+    url_or_id: str,
+    data: list,
+    sheet_name: Optional[str] = None,
+    start_cell: str = "A1",
+    append: bool = False,
+) -> dict:
+    """
+    Write rows to a Google Sheet using the Sheets API — no browser required.
+
+    Args:
+        url_or_id: Full Google Sheets URL or spreadsheet ID
+        data: List of dicts (headers auto-detected from first dict keys)
+              or list of lists (raw rows)
+        sheet_name: Worksheet name (default: first sheet)
+        start_cell: Top-left cell for writing (default A1)
+        append: If True, append rows below existing data instead of overwriting
+    """
+    try:
+        import gspread
+    except ImportError:
+        return {
+            "success": False,
+            "error": "Install required: pip install gspread google-auth google-auth-oauthlib",
+        }
+
+    try:
+        gc = _get_gspread_client()
+
+        if "docs.google.com" in url_or_id:
+            sh = gc.open_by_url(url_or_id)
+        else:
+            sh = gc.open_by_key(url_or_id)
+
+        ws = sh.worksheet(sheet_name) if sheet_name else sh.get_worksheet(0)
+
+        # Normalize: list of dicts → list of lists with header row
+        if data and isinstance(data[0], dict):
+            headers = list(data[0].keys())
+            rows = [headers] + [[row.get(h, "") for h in headers] for row in data]
+        else:
+            rows = data
+
+        if append:
+            ws.append_rows(rows, value_input_option="USER_ENTERED")
+            action = "appended"
+        else:
+            ws.update(start_cell, rows, value_input_option="USER_ENTERED")
+            action = "written"
+
+        return {
+            "success": True,
+            "rows_written": len(rows),
+            "text": (
+                f"✅ Google Sheet updated: *{sh.title}* / *{ws.title}*\n"
+                f"{len(rows)} row(s) {action}."
+            ),
+        }
+
+    except FileNotFoundError as e:
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"write_google_sheet error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def update_google_cell(
+    url_or_id: str,
+    cell: str,
+    value: str,
+    sheet_name: Optional[str] = None,
+) -> dict:
+    """Update a single cell in a Google Sheet. cell e.g. 'B3'."""
+    try:
+        import gspread
+    except ImportError:
+        return {"success": False, "error": "Install: pip install gspread google-auth"}
+
+    try:
+        gc = _get_gspread_client()
+        if "docs.google.com" in url_or_id:
+            sh = gc.open_by_url(url_or_id)
+        else:
+            sh = gc.open_by_key(url_or_id)
+
+        ws = sh.worksheet(sheet_name) if sheet_name else sh.get_worksheet(0)
+        ws.update_acell(cell, value)
+
+        return {
+            "success": True,
+            "text": f"✅ Cell *{cell}* updated to `{value}` in *{sh.title}*.",
+        }
+    except FileNotFoundError as e:
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"update_google_cell error: {e}")
+        return {"success": False, "error": str(e)}

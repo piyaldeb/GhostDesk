@@ -25,6 +25,13 @@ pdfplumber       # PDF text extraction (better than PyPDF2)
 # ─── Browser Automation ──────────────────────────────────────────────────────
 playwright       # Run: playwright install chromium
 
+# ─── Google APIs ─────────────────────────────────────────────────────────────
+gspread                     # Google Sheets API
+google-api-python-client    # Drive, Calendar, Docs, Gmail APIs
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+
 # ─── HTTP / APIs ─────────────────────────────────────────────────────────────
 requests
 

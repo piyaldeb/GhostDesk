@@ -95,6 +95,10 @@ PERSONALITY_CLONE_ENABLED = os.getenv("PERSONALITY_CLONE_ENABLED", "true").lower
 # ─── Autonomous Mode ──────────────────────────────────────────────────────────
 AUTONOMOUS_MODE_ENABLED = os.getenv("AUTONOMOUS_MODE_ENABLED", "true").lower() == "true"
 
+# ─── Google Sheets API ────────────────────────────────────────────────────────
+# Path to service account JSON, or leave blank to use OAuth2 (~/.ghostdesk/google_token.json)
+GOOGLE_SHEETS_CREDS_PATH = os.getenv("GOOGLE_SHEETS_CREDS_PATH", "")
+
 # ─── Platform flags ───────────────────────────────────────────────────────────
 IS_WINDOWS = sys.platform == "win32"
 IS_MAC     = sys.platform == "darwin"

@@ -166,6 +166,23 @@ _SETUP_GUIDES = {
         "  `set TELEGRAM_CHAT_ID to 987654321`\n\n"
         "*Step 4 — Restart:* say `restart ghostdesk`"
     ),
+    "google_sheets": (
+        "📊 *Google Sheets Setup (API — no browser)*\n\n"
+        "*Option A — Service Account (recommended for automation):*\n"
+        "1️⃣ Go to: console.cloud.google.com\n"
+        "2️⃣ Create a project → Enable 'Google Sheets API'\n"
+        "3️⃣ IAM & Admin → Service Accounts → Create → Download JSON key\n"
+        "4️⃣ Save the JSON file to: `C:\\Users\\YourName\\.ghostdesk\\google_service_account.json`\n"
+        "5️⃣ Share your Google Sheet with the service account email\n\n"
+        "*Option B — OAuth2 (easier, opens browser once):*\n"
+        "1️⃣ Same console → OAuth 2.0 Client IDs → Desktop App → Download JSON\n"
+        "2️⃣ Save as: `C:\\Users\\YourName\\.ghostdesk\\google_oauth_secret.json`\n"
+        "3️⃣ First use opens a browser to authorize — then cached forever\n\n"
+        "*Then use in chat:*\n"
+        "  `read my google sheet docs.google.com/spreadsheets/d/ID`\n"
+        "  `write to google sheet ID: [data]`\n"
+        "  `update cell B3 in sheet ID to 500`"
+    ),
     "voice": (
         "🎤 *Voice Setup*\n\n"
         "Voice transcription uses OpenAI Whisper — needs OPENAI_API_KEY even if you use Claude.\n\n"

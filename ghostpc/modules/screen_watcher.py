@@ -479,6 +479,26 @@ async def _send_alert(bot_app, chat_id: int, alert: dict, img_path: str):
         logger.error(f"Alert send failed: {e}")
 
 
+# ─── Personality Signal Capture ───────────────────────────────────────────────
+
+def _capture_personality_signal(analysis: dict) -> None:
+    """
+    If the screen analysis reveals outgoing text (notification preview or form content),
+    store it as personality training data. Called every 10 watcher ticks.
+    """
+    # Notification preview — e.g. user is about to send a message
+    notif = analysis.get("notification", {})
+    if notif.get("present") and notif.get("preview"):
+        preview = notif["preview"].strip()
+        app = notif.get("app", "")
+        if len(preview) > 20:
+            try:
+                from modules.personality import store_screen_behavior
+                store_screen_behavior(preview, app)
+            except Exception:
+                pass
+
+
 # ─── Watcher Loop ─────────────────────────────────────────────────────────────
 
 def _watcher_loop(bot_app, owner_chat_id: int, interval: int):
@@ -517,6 +537,15 @@ def _watcher_loop(bot_app, owner_chat_id: int, interval: int):
                 img_path = result["file_path"]
                 analysis = analyze_screenshot_structured(img_path)
                 log_screenshot(img_path, _summary_from_analysis(analysis))
+
+                # ── Personality behavior capture (every 10 ticks to reduce noise) ─
+                if state.tick % 10 == 0:
+                    try:
+                        from config import PERSONALITY_CLONE_ENABLED
+                        if PERSONALITY_CLONE_ENABLED:
+                            _capture_personality_signal(analysis)
+                    except Exception:
+                        pass
 
                 alerts = _process_analysis(
                     analysis, state, idle_secs, SCREEN_IDLE_SECONDS, priority_contacts

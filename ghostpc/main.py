@@ -413,6 +413,10 @@ async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🎤 Voice", callback_data="cfg_guide:voice"),
         ],
         [
+            InlineKeyboardButton("🗂️ Google Services", callback_data="cfg_guide:google_services"),
+            InlineKeyboardButton("📊 Google Sheets", callback_data="cfg_guide:google_sheets"),
+        ],
+        [
             InlineKeyboardButton("⚙️ Full config", callback_data="cfg_status"),
         ],
     ])
@@ -1240,6 +1244,22 @@ def main():
                     )
         except Exception as e:
             logger.warning(f"Autostart registration failed: {e}")
+
+        # ── Personality setup notification (first boot with no training data) ──
+        if config.PERSONALITY_CLONE_ENABLED:
+            try:
+                from modules.personality import get_personality_status
+                ps = await asyncio.get_event_loop().run_in_executor(None, get_personality_status)
+                if ps.get("success") and ps.get("total", 0) == 0:
+                    from modules.personality import setup_personality
+                    guide = await asyncio.get_event_loop().run_in_executor(None, setup_personality)
+                    await application.bot.send_message(
+                        chat_id=int(config.TELEGRAM_CHAT_ID),
+                        text=guide.get("text", ""),
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+            except Exception as e:
+                logger.warning(f"Personality setup check failed: {e}")
 
         # ── Missed schedule check ────────────────────────────────────────────
         try:
