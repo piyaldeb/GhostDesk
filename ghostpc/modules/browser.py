@@ -100,28 +100,15 @@ async def _get_browser():
         raise RuntimeError(f"Failed to launch browser: {first_err}")
 
 
-async def open_url(url: str, headless: bool = False) -> dict:
-    """Open a URL in the browser (visible window)."""
+def open_url(url: str) -> dict:
+    """Open a URL in the user's default system browser."""
     blocked = _api_only_check(url)
     if blocked:
         return blocked
     try:
-        from playwright.async_api import async_playwright
-        async with async_playwright() as p:
-            try:
-                browser = await p.chromium.launch(headless=headless)
-            except Exception as launch_err:
-                if "Executable doesn't exist" in str(launch_err) or "playwright install" in str(launch_err):
-                    await asyncio.get_event_loop().run_in_executor(None, _ensure_playwright_browsers)
-                    browser = await p.chromium.launch(headless=headless)
-                else:
-                    raise
-            page = await browser.new_page()
-            await page.goto(url, timeout=30000)
-            title = await page.title()
-            await asyncio.sleep(2)
-            await browser.close()
-            return {"success": True, "url": url, "title": title, "text": f"✅ Opened: {title}"}
+        import webbrowser
+        webbrowser.open(url)
+        return {"success": True, "url": url, "text": f"✅ Opened in browser: {url}"}
     except Exception as e:
         msg = repr(e) if not str(e) else str(e)
         logger.error(f"open_url error: {msg}")
