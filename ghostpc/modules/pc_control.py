@@ -309,12 +309,14 @@ def search_app(name: str) -> dict:
     """
     try:
         if IS_WINDOWS:
-            result = subprocess.run(
-                ["winget", "search", "--name", name, "--exact", "--accept-source-agreements"],
-                capture_output=True, text=True, timeout=30,
-            )
+            # Use --id if name looks like a winget package ID
+            if _winget_is_id(name):
+                search_cmd = ["winget", "search", "--id", name, "--exact", "--accept-source-agreements"]
+            else:
+                search_cmd = ["winget", "search", "--name", name, "--exact", "--accept-source-agreements"]
+            result = subprocess.run(search_cmd, capture_output=True, text=True, timeout=30)
             if result.returncode != 0 or not result.stdout.strip():
-                # Fallback: non-exact search, first 5 results
+                # Fallback: broad search
                 result = subprocess.run(
                     ["winget", "search", name, "--accept-source-agreements"],
                     capture_output=True, text=True, timeout=30,
@@ -341,6 +343,25 @@ def search_app(name: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
+def _winget_is_id(name: str) -> bool:
+    """
+    Return True if `name` looks like a winget/Store package ID rather than a display name.
+    Winget IDs: 'Publisher.AppName', 'Microsoft.VisualStudioCode', 'XP8BSBGQW2DKS0', etc.
+    They contain no spaces and either have dots or are all-caps alphanumeric (Store IDs).
+    """
+    import re
+    name = name.strip()
+    if " " in name:
+        return False
+    # Publisher.App format (e.g. Git.Git, Microsoft.PowerShell)
+    if "." in name:
+        return True
+    # Microsoft Store IDs: all uppercase alphanumeric, 12+ chars
+    if re.fullmatch(r"[A-Z0-9]{10,}", name):
+        return True
+    return False
+
+
 def install_app(name: str, confirm: bool = False) -> dict:
     """
     Install an application silently using the system package manager.
@@ -357,15 +378,20 @@ def install_app(name: str, confirm: bool = False) -> dict:
             "text": (
                 f"📦 About to install: *{name}*\n\n"
                 + (f"Found in package manager:\n```\n{info[:400]}\n```\n\n" if info else "")
-                + "Reply ✅ Yes to confirm installation."
+                + "Reply ✅ `install it` to confirm, or `cancel`."
             ),
         }
 
     try:
         if IS_WINDOWS:
+            # Choose --id or --name depending on whether the input looks like a winget ID
+            if _winget_is_id(name):
+                id_flag = ["--id", name, "--exact"]
+            else:
+                id_flag = ["--name", name]
             result = subprocess.run(
-                ["winget", "install", "--name", name,
-                 "--silent", "--accept-package-agreements", "--accept-source-agreements"],
+                ["winget", "install"] + id_flag +
+                ["--silent", "--accept-package-agreements", "--accept-source-agreements"],
                 capture_output=True, text=True, timeout=300,
             )
         elif IS_MAC:
@@ -379,14 +405,20 @@ def install_app(name: str, confirm: bool = False) -> dict:
                 capture_output=True, text=True, timeout=300,
             )
 
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+        combined = (stdout + stderr).lower()
+
         if result.returncode == 0:
-            return {"success": True, "text": f"✅ {name} installed successfully."}
-        # winget exit code 0x8A150011 = already installed
-        if "already installed" in result.stdout.lower() or result.returncode == -1978335215:
-            return {"success": True, "text": f"✅ {name} is already installed."}
+            return {"success": True, "text": f"✅ *{name}* installed successfully."}
+        # winget exit code 0x8A150011 (-1978335215) = already installed
+        if "already installed" in combined or result.returncode == -1978335215:
+            return {"success": True, "text": f"✅ *{name}* is already installed."}
+        # Show stderr if stdout is empty
+        detail = (stdout or stderr)[-400:].strip()
         return {
             "success": False,
-            "error": f"Install failed (code {result.returncode}):\n{result.stdout[-300:]}",
+            "error": f"Install failed (code {result.returncode}):\n{detail}",
         }
     except FileNotFoundError as e:
         return {"success": False, "error": f"Package manager not found: {e}"}

@@ -258,7 +258,14 @@ class GhostAgent:
                 # If result contains a file path to send, send it automatically
                 if isinstance(result, dict):
                     if result.get("success") is False:
-                        err = result.get("error", "Unknown error")
+                        # Confirmation prompt (e.g. install_app before confirm=True):
+                        # show the text and stop — don't treat as error
+                        if result.get("confirm") or result.get("needs_confirm"):
+                            text = result.get("text", "")
+                            if text:
+                                await self.send(text)
+                            break  # stop chain; user must reply to confirm
+                        err = result.get("error") or result.get("text") or "Unknown error"
                         recovery = self.ai.suggest_recovery(action, err)
                         await self.send(f"⚠️ Action {i+1} failed: {err}\n\n💡 Suggestion: {recovery}")
                         overall_success = False
